@@ -6,21 +6,17 @@ import '../data/repositories/delivery_repository.dart';
 import 'local_storage_service.dart';
 import 'delivery_generation_service.dart';
 
-/// Manual-only scheduler.
+/// Manual-only scheduler — no background timers.
 ///
-/// No background timers. No auto-generation.
-/// The vendor explicitly picks a time slot on the Deliveries screen and taps
-/// "Generate" — this service creates the deliveries for that slot.
+/// The vendor picks slots on the Deliveries screen and taps "Generate".
 ///
-/// Date advancement logic:
-/// - First tap of the day → generates for TODAY.
-/// - Every subsequent tap on the same calendar day → generates for TOMORROW
-///   (i.e. the next date that has not yet been generated for these slots).
-/// - This prevents the same day being flooded with duplicates while still
-///   allowing the vendor to pre-generate the next day's deliveries.
+/// Date logic:
+///   • If we have NOT yet generated for today → generates for TODAY.
+///   • If today is already done → generates for TOMORROW.
+///   This lets the vendor pre-generate the next day's deliveries without
+///   duplicating today's.
 class DeliverySchedulerService extends GetxService {
-
-  static const _kLastGeneratedDateKey = 'last_generated_date';
+  static const _kLastGeneratedKey = 'last_generated_date';
 
   final RxBool isGenerating = false.obs;
 
@@ -28,14 +24,8 @@ class DeliverySchedulerService extends GetxService {
   // PUBLIC API
   // ─────────────────────────────────────────────────────────────
 
-  /// Generate deliveries for [selectedSlots] (list of startTime strings like
-  /// "07:00 AM").
-  ///
-  /// Picks the target date automatically:
-  ///   - If we have NOT yet generated for today → use today.
-  ///   - If we already generated for today → use tomorrow.
-  ///
-  /// Returns the total number of new deliveries created.
+  /// Generate deliveries for [selectedSlots].
+  /// Returns total number of new delivery records created.
   Future<int> generateForSlots(
       String vendorId,
       List<String> selectedSlots,
@@ -44,53 +34,55 @@ class DeliverySchedulerService extends GetxService {
 
     isGenerating.value = true;
     int total = 0;
+
     try {
       final targetDate = _resolveTargetDate();
-      AppLogger.i('Scheduler: Target date → ${_dateKey(targetDate)}');
+      AppLogger.i('Scheduler: Generating for ${_dateKey(targetDate)}');
 
-      for (final slotStartTime in selectedSlots) {
-        AppLogger.i('Scheduler: Generating for slot $slotStartTime on ${_dateKey(targetDate)}');
+      for (final slot in selectedSlots) {
+        AppLogger.i('Scheduler: slot=$slot');
         total += await Get.find<DeliveryGenerationService>()
-            .generateForDateAndSlot(vendorId, targetDate, slotStartTime);
+            .generateForDateAndSlot(vendorId, targetDate, slot);
       }
 
+      // Always record the target date as generated.
+      // If total==0 it means everything was already created (idempotent skip),
+      // so we still advance the key so the next tap moves to the following day.
+      await LocalStorageService.saveSetting(
+        _kLastGeneratedKey,
+        _dateKey(targetDate),
+      );
+
       if (total > 0) {
-        // Record that we have generated for this date
-        await LocalStorageService.saveSetting(
-          _kLastGeneratedDateKey,
-          _dateKey(targetDate),
-        );
-        AppLogger.i(
-            'Scheduler: Generated $total deliveries across '
-                '${selectedSlots.length} slot(s) for ${_dateKey(targetDate)}');
+        AppLogger.i('Scheduler: Generated $total deliveries for ${_dateKey(targetDate)}');
       } else {
-        AppLogger.i('Scheduler: Nothing new to generate for ${_dateKey(targetDate)}');
+        AppLogger.i('Scheduler: All deliveries already exist for ${_dateKey(targetDate)} — advancing date');
       }
     } catch (e) {
       AppLogger.e('Scheduler: generateForSlots failed', e);
     } finally {
       isGenerating.value = false;
     }
+
     return total;
   }
 
-  /// The date for which generation will run next time the vendor taps Generate.
-  /// Useful for displaying "Generating for: Today / Tomorrow" in the UI.
+  /// The date deliveries will be generated for on the NEXT Generate tap.
+  /// Use this to show "Generating for: Today / Tomorrow" in the UI.
   DateTime get nextGenerationDate => _resolveTargetDate();
 
   /// Mark pending deliveries as missed once their slot window has closed.
-  /// Call this when the vendor opens the screen or taps "Mark Missed".
   Future<void> markExpiredAsMissed(String vendorId) async {
-    final now          = DateTime.now();
-    final deliveries   = LocalStorageService.getTodayDeliveries();
-    final timeSlots    = LocalStorageService.getTimeSlots();
-    final deliveryRepo = Get.find<DeliveryRepository>();
+    final now        = DateTime.now();
+    final deliveries = LocalStorageService.getTodayDeliveries();
+    final timeSlots  = LocalStorageService.getTimeSlots();
+    final repo       = Get.find<DeliveryRepository>();
 
     for (final delivery in deliveries) {
       if (delivery.status != DeliveryStatus.pending) continue;
 
-      final slotModel = timeSlots
-          .firstWhereOrNull((s) => s.startTime == delivery.deliverySlot);
+      final slotModel =
+      timeSlots.firstWhereOrNull((s) => s.startTime == delivery.deliverySlot);
 
       final missedAfter = slotModel != null
           ? slotModel.getEndDateTime(delivery.scheduledDate)
@@ -101,7 +93,7 @@ class DeliverySchedulerService extends GetxService {
           'Scheduler: Marking missed — ${delivery.customerName} '
               '(slot ${delivery.deliverySlot})',
         );
-        await deliveryRepo.updateDeliveryStatus(
+        await repo.updateDeliveryStatus(
             vendorId, delivery, DeliveryStatus.missed);
       }
     }
@@ -111,15 +103,14 @@ class DeliverySchedulerService extends GetxService {
   // PRIVATE
   // ─────────────────────────────────────────────────────────────
 
-  /// Returns today if we haven't generated for today yet, otherwise tomorrow.
+  /// Today if not yet generated today, tomorrow otherwise.
   DateTime _resolveTargetDate() {
-    final today           = DateTime.now();
-    final todayKey        = _dateKey(today);
-    final lastGeneratedKey =
-    LocalStorageService.getSetting<String>(_kLastGeneratedDateKey);
+    final today         = DateTime.now();
+    final todayKey      = _dateKey(today);
+    final lastGenerated =
+    LocalStorageService.getSetting<String>(_kLastGeneratedKey);
 
-    if (lastGeneratedKey == todayKey) {
-      // Already generated for today → advance to tomorrow
+    if (lastGenerated == todayKey) {
       return today.add(const Duration(days: 1));
     }
     return today;

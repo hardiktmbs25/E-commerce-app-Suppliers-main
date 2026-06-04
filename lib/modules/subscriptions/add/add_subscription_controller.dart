@@ -80,10 +80,13 @@ class AddSubscriptionController extends GetxController {
       LocalStorageService.getVendor()?.serviceTypeStr ??
           ServiceConstants.custom;
 
-  List<CustomerModel> get customers =>
-      LocalStorageService.getCustomers()
-          .where((c) => c.isActive)
-          .toList();
+  final customers = <CustomerModel>[].obs;
+
+  void _loadCustomers() {
+    customers.assignAll(
+      LocalStorageService.getCustomers().where((c) => c.isActive).toList(),
+    );
+  }
 
   double get totalDeliveryRate {
     return selectedPlans.fold(
@@ -114,6 +117,7 @@ class AddSubscriptionController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    _loadCustomers();
 
     if (Get.arguments is MergedSubscription) {
       final merged = Get.arguments as MergedSubscription;
@@ -395,12 +399,10 @@ class AddSubscriptionController extends GetxController {
           final resolvedSlots = plan.deliverySlotIds
               .map((slotId) {
             final slot = timeSlots.firstWhereOrNull((s) => s.id == slotId);
-            // FIX: use startTime (e.g. '06:00') not label ('6:00 AM - 7:00 AM')
-            // The delivery picker passes slot.startTime, so stored value must match.
-            return slot?.startTime ?? '07:00';
+            return slot?.label ?? '07:00 AM';
           }).toList();
           if (resolvedSlots.isEmpty) resolvedSlots.addAll(originalSub.effectiveSlots);
-          if (resolvedSlots.isEmpty) resolvedSlots.add('07:00');
+          if (resolvedSlots.isEmpty) resolvedSlots.add('07:00 AM');
 
           final updatedSub = originalSub.copyWith(
             serviceTypeStr: plan.serviceType,
@@ -444,14 +446,13 @@ class AddSubscriptionController extends GetxController {
             final slot = timeSlots.firstWhereOrNull(
                   (s) => s.id == slotId,
             );
-            // FIX: use startTime (e.g. '06:00') not label ('6:00 AM - 7:00 AM')
-            // The delivery picker passes slot.startTime, so stored value must match.
-            return slot?.startTime ?? '07:00';
+
+            return slot?.label ?? '07:00 AM';
           })
               .toList();
 
           if (resolvedSlots.isEmpty) {
-            resolvedSlots.add('07:00');
+            resolvedSlots.add('07:00 AM');
           }
 
           final result = await _repo.createSubscription(

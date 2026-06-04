@@ -1,16 +1,14 @@
 // lib/services/delivery_generation_service.dart
-
 import 'package:get/get.dart';
 import 'package:uuid/uuid.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
-import 'package:e_commerce_suppliers/core/constants/app_constants.dart';
-import 'package:e_commerce_suppliers/core/utils/logger.dart';
-import 'package:e_commerce_suppliers/data/models/delivery_model.dart';
-import 'package:e_commerce_suppliers/data/models/subscription_model.dart';
-import 'package:e_commerce_suppliers/data/models/sync_action_model.dart';
-import 'package:e_commerce_suppliers/services/connectivity_service.dart';
-import 'package:e_commerce_suppliers/services/local_storage_service.dart';
+import '../core/constants/app_constants.dart';
+import '../core/utils/logger.dart';
+import '../data/models/delivery_model.dart';
+import '../data/models/subscription_model.dart';
+import '../data/models/sync_action_model.dart';
+import 'connectivity_service.dart';
+import 'local_storage_service.dart';
 
 class DeliveryGenerationService extends GetxService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -19,20 +17,26 @@ class DeliveryGenerationService extends GetxService {
   String _deliveriesCol(String vid) =>
       '${AppConstants.colVendors}/$vid/${AppConstants.colDeliveries}';
 
-  // ─────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────
   // PUBLIC API
-  // ─────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────
 
-  /// Creates deliveries for every active subscription that has [targetSlot]
-  /// in its effectiveSlots, scheduled for [date].
+  /// Generates deliveries for all active subscriptions whose [effectiveSlots]
+  /// contain [targetSlot], scheduled for [date].
   ///
-  /// Deliveries are keyed on customerId + serviceType + slot + date,
-  /// NOT on subscriptionId — so multiple subscriptions for the same customer
-  /// at the same slot are merged into a single delivery with summed qty/amount.
+  /// KEY RULE — one delivery per customer+serviceType+slot+day:
+  ///   Delivery ID = "{customerId}_{serviceType}_{safeSlot}_{dateKey}"
+  ///   If multiple subscription docs exist for the same customer+service+slot,
+  ///   their quantities and amounts are SUMMED into a single delivery.
+  ///   subscriptionId on the delivery record holds the first matched sub's id
+  ///   (used for counter updates only).
+  ///
+  /// Already-existing deliveries (same ID) are silently skipped — safe to call
+  /// multiple times for the same slot+date.
   Future<int> generateForDateAndSlot(
       String vendorId,
       DateTime date,
-      String targetSlot,
+      String targetSlot, // this is slot.startTime e.g. "06:00"
       ) async {
     final subscriptions = LocalStorageService.getSubscriptions()
         .where((s) => s.isActive)
@@ -44,12 +48,30 @@ class DeliveryGenerationService extends GetxService {
       for (final c in LocalStorageService.getCustomers()) c.id: c,
     };
 
-    // ── Group subscriptions by customer + serviceType for this slot/date ──
+    // Build a lookup: slot label → startTime and slot startTime → startTime
+    // Subscriptions store slot labels; the screen passes startTime.
+    // We normalise everything to startTime for comparison.
+    final timeSlots = LocalStorageService.getTimeSlots();
+    final labelToStartTime = {
+      for (final s in timeSlots) s.label: s.startTime,
+    };
+
+    /// Returns the startTime for a stored slot string (handles both label and startTime).
+    String resolveToStartTime(String slotStr) {
+      if (timeSlots.any((s) => s.startTime == slotStr)) return slotStr;
+      return labelToStartTime[slotStr] ?? slotStr;
+    }
+
+    // ── Group matching subscriptions by customer+serviceType ──────────────
     final Map<String, List<SubscriptionModel>> groups = {};
 
     for (final sub in subscriptions) {
       if (!sub.shouldDeliverOn(date)) continue;
-      if (!sub.effectiveSlots.contains(targetSlot)) continue;
+
+      // Resolve each stored slot to its startTime, then check if targetSlot matches
+      final subStartTimes =
+      sub.effectiveSlots.map((s) => resolveToStartTime(s)).toSet();
+      if (!subStartTimes.contains(targetSlot)) continue;
 
       final customer = customerMap[sub.customerId];
       if (customer != null && customer.statusStr == 'inactive') continue;
@@ -60,27 +82,31 @@ class DeliveryGenerationService extends GetxService {
 
     if (groups.isEmpty) return 0;
 
+    final dateKey  = _dateKey(date);
+    final safeSlot = targetSlot.replaceAll(' ', '_').replaceAll(':', '');
+
     int count = 0;
-    final batch = _db.batch();
-    final List<DeliveryModel> localToSave = [];
+    final batch          = _db.batch();
+    final localToSave    = <DeliveryModel>[];
 
     for (final entry in groups.entries) {
-      final subs = entry.value;
+      final subs  = entry.value;
       final first = subs.first;
-      final customer = customerMap[first.customerId];
 
-      final dateKey  = _dateKey(date);
-      final safeSlot = targetSlot.replaceAll(' ', '_').replaceAll(':', '');
+      // Deterministic delivery ID — customer+service+slot+date (NOT sub ID)
       final deliveryId =
           '${first.customerId}_${first.serviceTypeStr}_${safeSlot}_$dateKey';
 
-      if (_existsLocally(deliveryId)) continue;
+      // Skip if this delivery already exists locally
+      if (_existsByDeliveryId(deliveryId)) continue;
 
-      // Correctly sum quantities and amounts
-      final double totalQty = subs.fold(0.0, (s, item) => s + item.quantity);
-      final double totalAmount = subs.fold(0.0, (s, item) => s + item.pricePerDelivery);
-      
-      final String primarySubId = first.id;
+      final customer = customerMap[first.customerId];
+
+      // Sum quantity and amount across all merged subscriptions
+      final double totalQty =
+      subs.fold(0.0, (sum, s) => sum + s.quantity);
+      final double totalAmount =
+      subs.fold(0.0, (sum, s) => sum + s.pricePerDelivery);
 
       final delivery = DeliveryModel(
         id:              deliveryId,
@@ -88,7 +114,7 @@ class DeliveryGenerationService extends GetxService {
         customerId:      first.customerId,
         customerName:    first.customerName,
         customerAddress: customer?.address ?? '',
-        subscriptionId:  primarySubId,
+        subscriptionId:  first.id, // primary sub — used for counter updates
         serviceTypeStr:  first.serviceTypeStr,
         quantity:        totalQty,
         unit:            first.unit,
@@ -111,7 +137,7 @@ class DeliveryGenerationService extends GetxService {
         batch.set(
           _db.collection(_deliveriesCol(vendorId)).doc(delivery.id),
           delivery.toFirestore(),
-          SetOptions(merge: true),
+          SetOptions(merge: true), // idempotent — safe if already exists in Firestore
         );
       } else {
         _enqueueOffline(vendorId, delivery);
@@ -119,33 +145,35 @@ class DeliveryGenerationService extends GetxService {
       count++;
     }
 
+    // Commit Firestore batch
     if (_connectivity.isOnline.value && count > 0) {
       try {
         await batch.commit();
       } catch (e) {
-        AppLogger.e('GenerationService: batch commit failed — queuing offline', e);
+        AppLogger.e('GenerationService: Firestore batch failed — queuing offline', e);
         for (final d in localToSave) {
           _enqueueOffline(vendorId, d.copyWith(isSynced: false));
         }
       }
     }
 
+    // Save to local Hive cache
     for (final d in localToSave) {
       await LocalStorageService.saveDelivery(d);
     }
 
-    if (count > 0) {
-      AppLogger.i(
-          'GenerationService: +$count deliveries merged for slot=$targetSlot date=${_dateKey(date)}');
-    }
+    AppLogger.i(
+        'GenerationService: +$count new deliveries  '
+            'slot=$targetSlot  date=$dateKey');
     return count;
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // HELPERS
-  // ─────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────
+  // PRIVATE HELPERS
+  // ─────────────────────────────────────────────────────────────────────
 
-  bool _existsLocally(String deliveryId) =>
+  /// Check by the merged delivery ID (customer+service+slot+date).
+  bool _existsByDeliveryId(String deliveryId) =>
       LocalStorageService.getDeliveries().any((d) => d.id == deliveryId);
 
   void _enqueueOffline(String vendorId, DeliveryModel d) {
@@ -161,23 +189,17 @@ class DeliveryGenerationService extends GetxService {
 
   String _dateKey(DateTime d) => '${d.year}-${d.month}-${d.day}';
 
+  /// Parses "03:00 PM" → DateTime on [baseDate] at 15:00.
   DateTime _slotDateTime(DateTime baseDate, String slot) {
-    final s = slot.trim().toUpperCase();
-    int hour = 7;
-    int minute = 0;
-
-    if (s.contains('AM') || s.contains('PM')) {
-      final parts = s.split(' ');
-      final tp = parts[0].split(':');
-      hour   = int.tryParse(tp[0]) ?? 7;
-      minute = tp.length > 1 ? (int.tryParse(tp[1]) ?? 0) : 0;
-      if (parts[1] == 'PM' && hour != 12) hour += 12;
-      if (parts[1] == 'AM' && hour == 12) hour = 0;
-    } else {
-      final parts = s.split(':');
-      hour   = int.tryParse(parts[0]) ?? 7;
-      minute = parts.length > 1 ? (int.tryParse(parts[1]) ?? 0) : 0;
+    final parts = slot.trim().toUpperCase().split(' ');
+    if (parts.length != 2) {
+      return DateTime(baseDate.year, baseDate.month, baseDate.day, 7, 0);
     }
+    final tp    = parts[0].split(':');
+    int hour    = int.tryParse(tp[0]) ?? 7;
+    int minute  = tp.length > 1 ? (int.tryParse(tp[1]) ?? 0) : 0;
+    if (parts[1] == 'PM' && hour != 12) hour += 12;
+    if (parts[1] == 'AM' && hour == 12) hour = 0;
     return DateTime(baseDate.year, baseDate.month, baseDate.day, hour, minute);
   }
 }
