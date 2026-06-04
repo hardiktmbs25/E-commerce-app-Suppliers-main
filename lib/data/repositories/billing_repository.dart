@@ -79,6 +79,21 @@ class BillingRepository {
     });
   }
 
+  /// Live stream of all paid invoices for the vendor.
+  Stream<List<InvoiceModel>> watchPaidInvoices(String vendorId) {
+    return _db
+        .collection(_invoiceCol(vendorId))
+        .where('status', isEqualTo: InvoiceStatus.paid.name)
+        .orderBy('generatedAt', descending: true)
+        .limit(50)
+        .snapshots()
+        .map((s) => s.docs.map((doc) => InvoiceModel.fromFirestore(doc)).toList())
+        .handleError((Object e) {
+      AppLogger.e('BillingRepository: watchPaidInvoices error', e);
+      throw e;
+    });
+  }
+
   /// Invoices for a specific month — used for monthly summary.
   Stream<List<InvoiceModel>> watchInvoicesByMonth(
       String vendorId, int month, int year) {

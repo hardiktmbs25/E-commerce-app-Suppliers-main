@@ -35,16 +35,28 @@ class ShimmerBox extends StatelessWidget {
 class ShimmerList extends StatelessWidget {
   final int count;
   final double itemHeight;
-  const ShimmerList({super.key, this.count = 5, this.itemHeight = 80});
+  final EdgeInsets padding;
+
+  const ShimmerList({
+    super.key,
+    this.count = 5,
+    this.itemHeight = 80,
+    this.padding = const EdgeInsets.all(20),
+  });
 
   @override
   Widget build(BuildContext context) {
-    return ListView.separated(
-      padding: const EdgeInsets.all(20),
-      itemCount: count,
-      physics: const NeverScrollableScrollPhysics(),
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (_, __) => ShimmerBox(height: itemHeight),
+    return Padding(
+      padding: padding,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: List.generate(count, (index) {
+          return Padding(
+            padding: EdgeInsets.only(bottom: index == count - 1 ? 0 : 12),
+            child: ShimmerBox(height: itemHeight),
+          );
+        }),
+      ),
     );
   }
 }

@@ -227,8 +227,14 @@ class CustomerDetailScreen extends GetView<CustomerDetailController> {
                           ]),
                           const Spacer(),
                           IconButton(
+                            icon: const Icon(Icons.picture_as_pdf_rounded, size: 20, color: AppColors.primary),
+                            onPressed: () => controller.viewInvoice(inv),
+                            tooltip: 'View PDF',
+                          ),
+                          IconButton(
                             icon: const Icon(Icons.share_outlined, size: 20, color: AppColors.primary),
                             onPressed: () => controller.shareInvoice(inv),
+                            tooltip: 'Share',
                           ),
                           Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
                             Text('₹${inv.totalAmount.toStringAsFixed(0)}',

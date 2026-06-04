@@ -1,19 +1,20 @@
 // lib/services/billing_generation_service.dart
+
 import 'package:get/get.dart';
 import 'package:uuid/uuid.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import '../core/constants/app_constants.dart';
-import '../core/utils/logger.dart';
-import '../data/models/customer_model.dart';
-import '../data/models/delivery_model.dart';
-import '../data/models/invoice_model.dart';
-import '../data/models/ledger_entry_model.dart';
-import '../data/models/sync_action_model.dart';
-import 'customer_balance_service.dart';
-import 'ledger_service.dart';
-import 'connectivity_service.dart';
-import 'local_storage_service.dart';
+import 'package:e_commerce_suppliers/core/constants/app_constants.dart';
+import 'package:e_commerce_suppliers/core/utils/logger.dart';
+import 'package:e_commerce_suppliers/data/models/customer_model.dart';
+import 'package:e_commerce_suppliers/data/models/delivery_model.dart';
+import 'package:e_commerce_suppliers/data/models/invoice_model.dart';
+import 'package:e_commerce_suppliers/data/models/ledger_entry_model.dart';
+import 'package:e_commerce_suppliers/data/models/sync_action_model.dart';
+import 'package:e_commerce_suppliers/services/customer_balance_service.dart';
+import 'package:e_commerce_suppliers/services/ledger_service.dart';
+import 'package:e_commerce_suppliers/services/connectivity_service.dart';
+import 'package:e_commerce_suppliers/services/local_storage_service.dart';
 
 class BillingGenerationService extends GetxService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -66,10 +67,10 @@ class BillingGenerationService extends GetxService {
         return null;
       }
 
-      // Group deliveries by subscription ID
+      // Group deliveries by service type instead of subscription ID to aggregate multiple subscriptions
       final Map<String, List<DeliveryModel>> grouped = {};
       for (final d in allDeliveries) {
-        final key = d.subscriptionId ?? 'extra';
+        final key = d.serviceTypeStr;
         grouped[key] = [...(grouped[key] ?? []), d];
       }
 
@@ -79,18 +80,17 @@ class BillingGenerationService extends GetxService {
         final regularItems = items.where((d) => !d.isExtraOrder).toList();
         final extraItems = items.where((d) => d.isExtraOrder).toList();
 
-        final regularSubtotal = regularItems.fold(0.0, (totalVal, d) => totalVal + d.amount);
-        final extraCharges = extraItems.fold(0.0, (totalVal, d) => totalVal + d.amount);
-        final subtotal = regularSubtotal + extraCharges;
-
+        // Total amount for this service type in the billing period
+        final totalServiceAmount = items.fold(0.0, (totalVal, d) => totalVal + d.amount);
+        
         return InvoiceLineItem(
-          subscriptionId: entry.key,
-          description: '${items.first.serviceTypeStr.toUpperCase()} — ${regularItems.length} deliveries'
-              '${extraItems.isNotEmpty ? " + ${extraItems.length} extra" : ""}',
-          deliveryCount: regularItems.length,
-          pricePerDelivery: regularItems.isNotEmpty ? regularItems.first.amount : extraItems.first.amount,
-          extraCharges: extraCharges,
-          subtotal: subtotal,
+          subscriptionId: regularItems.isNotEmpty ? regularItems.first.subscriptionId ?? 'mixed' : 'extra',
+          description: '${entry.key.toUpperCase()} — ${items.length} total deliveries'
+              '${extraItems.isNotEmpty ? " (incl. ${extraItems.length} extra)" : ""}',
+          deliveryCount: items.length,
+          pricePerDelivery: items.isNotEmpty ? totalServiceAmount / items.length : 0,
+          extraCharges: extraItems.fold(0.0, (totalVal, d) => totalVal + d.amount),
+          subtotal: totalServiceAmount,
         );
       }).toList();
 
@@ -158,17 +158,25 @@ class BillingGenerationService extends GetxService {
         await _enqueueInvoiceSync(vendorId, invoice, allDeliveries);
       }
 
-      // 2. Add Debit entry to customer Ledger
-      await _ledgerService.createEntry(
-        vendorId: vendorId,
-        customerId: customer.id,
-        type: LedgerEntryType.charge, // Debit entry
-        amount: totalAmount,
-        description: 'Invoice Generated - ${invoice.invoiceNumber}',
-        referenceId: invoiceId,
-      );
+      // NOTE: Ledger entry creation for the whole invoice is removed here
+      // because individual deliveries now create ledger entries instantly
+      // upon completion (DeliveryRepository.updateDeliveryStatus).
+      // Generating a ledger entry here would result in double-charging.
 
-      // 3. Recalculate customer due balance
+      // However, if there was a discount applied at invoice generation, 
+      // we must record it as a credit in the ledger.
+      if (discount > 0) {
+        await _ledgerService.createEntry(
+          vendorId: vendorId,
+          customerId: customer.id,
+          type: LedgerEntryType.discount,
+          amount: -discount,
+          description: 'Invoice Discount - ${invoice.invoiceNumber}',
+          referenceId: invoiceId,
+        );
+      }
+
+      // 3. Recalculate customer due balance strictly
       await _balanceService.recalculateCustomerBalance(
         vendorId: vendorId,
         customerId: customer.id,

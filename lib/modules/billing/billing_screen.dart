@@ -27,6 +27,18 @@ class BillingScreen extends GetView<BillingController> {
           title: const Text('Billing',
               style: TextStyle(fontFamily: 'Poppins', fontWeight: FontWeight.w700)),
           actions: [
+            Obx(() => IconButton(
+              icon: Icon(
+                controller.showPaidInOverview.value
+                    ? Icons.check_circle
+                    : Icons.check_circle_outline,
+                color: controller.showPaidInOverview.value
+                    ? AppColors.success
+                    : null,
+              ),
+              tooltip: 'Show Paid Bills',
+              onPressed: () => controller.showPaidInOverview.toggle(),
+            )),
             Obx(() => controller.isGenerating.value
                 ? const Padding(
               padding: EdgeInsets.all(12),
@@ -130,24 +142,25 @@ class _OverviewTab extends StatelessWidget {
 
             // ── Section header ─────────────────────────────────────────
             Row(children: [
-              const Text('Pending Bills',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700,
+              Text(ctrl.showPaidInOverview.value ? 'Paid Bills' : 'Pending Bills',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700,
                       color: AppColors.textPrimary, fontFamily: 'Poppins')),
               const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                    color: AppColors.error.withValues(alpha: 0.1),
+                    color: (ctrl.showPaidInOverview.value ? AppColors.success : AppColors.error).withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(100)),
-                child: Text('${ctrl.pendingBills.length}',
-                    style: const TextStyle(fontSize: 11,
-                        fontWeight: FontWeight.w700, color: AppColors.error,
+                child: Text(ctrl.showPaidInOverview.value ? '${ctrl.paidBills.length}' : '${ctrl.pendingBills.length}',
+                    style: TextStyle(fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: ctrl.showPaidInOverview.value ? AppColors.success : AppColors.error,
                         fontFamily: 'Poppins')),
               ),
             ]),
             const SizedBox(height: 12),
 
-            if (ctrl.pendingBills.isEmpty)
+            if (!ctrl.showPaidInOverview.value && ctrl.pendingBills.isEmpty)
               EmptyState(
                 icon: Icons.check_circle_outline_rounded,
                 title: 'All Clear!',
@@ -155,8 +168,15 @@ class _OverviewTab extends StatelessWidget {
                 actionLabel: 'Generate Monthly Bills',
                 onAction: () => ctrl.generateAllMonthlyBills(),
               )
+            else if (ctrl.showPaidInOverview.value && ctrl.paidBills.isEmpty)
+              const EmptyState(
+                icon: Icons.receipt_long_outlined,
+                title: 'No Paid Bills',
+                subtitle: 'Collected payments will show up here.',
+              )
             else
-              ...ctrl.pendingBills.map((b) => _BillCard(bill: b, ctrl: ctrl)),
+              ...(ctrl.showPaidInOverview.value ? ctrl.paidBills : ctrl.pendingBills)
+                  .map((b) => _BillCard(bill: b, ctrl: ctrl)),
           ],
         ),
       );
@@ -255,91 +275,133 @@ class _BillCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-            color: bill.isOverdue
-                ? AppColors.error.withValues(alpha: 0.3)
-                : AppColors.border,
-            width: bill.isOverdue ? 1.5 : 0.8),
-        boxShadow: [BoxShadow(
-            color: AppColors.cardShadow, blurRadius: 5,
-            offset: const Offset(0, 2))],
-      ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(bill.customerName,
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary, fontFamily: 'Poppins')),
-                Text(bill.invoiceNumber,
-                    style: const TextStyle(fontSize: 11,
-                        color: AppColors.textHint, fontFamily: 'Poppins')),
-              ])),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-                color: _statusColor.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(100),
-                border: Border.all(
-                    color: _statusColor.withValues(alpha: 0.3))),
-            child: Text(_statusLabel,
-                style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800,
-                    color: _statusColor, fontFamily: 'Poppins',
-                    letterSpacing: 0.5)),
+    return Stack(
+      children: [
+        Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+                color: bill.isOverdue
+                    ? AppColors.error.withValues(alpha: 0.3)
+                    : AppColors.border,
+                width: bill.isOverdue ? 1.5 : 0.8),
+            boxShadow: [BoxShadow(
+                color: AppColors.cardShadow, blurRadius: 5,
+                offset: const Offset(0, 2))],
           ),
-        ]),
-        const Divider(height: 16, color: AppColors.divider),
-        Row(children: [
-          _BillStat(label: 'Total',    value: '₹${bill.totalAmount.toStringAsFixed(0)}'),
-          const SizedBox(width: 16),
-          _BillStat(label: 'Paid',     value: '₹${bill.paidAmount.toStringAsFixed(0)}',
-              color: AppColors.success),
-          const SizedBox(width: 16),
-          _BillStat(label: 'Pending',  value: '₹${bill.pendingAmount.toStringAsFixed(0)}',
-              color: AppColors.error),
-        ]),
-        const SizedBox(height: 10),
-        Row(children: [
-          Expanded(child: OutlinedButton.icon(
-            onPressed: () => Get.toNamed(
-                Routes.customerLedger,
-                arguments: {'customerId': bill.customerId,
-                  'customerName': bill.customerName}),
-            icon: const Icon(Icons.list_alt_rounded, size: 15),
-            label: const Text('Ledger',
-                style: TextStyle(fontSize: 12, fontFamily: 'Poppins')),
-            style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.primary,
-                side: const BorderSide(color: AppColors.primary),
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8))),
-          )),
-          if (bill.pendingAmount > 0) ...[
-            const SizedBox(width: 8),
-            Expanded(child: ElevatedButton.icon(
-              onPressed: () => _showPaymentSheet(context, bill),
-              icon: const Icon(Icons.payments_outlined, size: 15,
-                  color: Colors.white),
-              label: const Text('Collect',
-                  style: TextStyle(fontSize: 12, fontFamily: 'Poppins',
-                      color: Colors.white, fontWeight: FontWeight.w700)),
-              style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.success,
-                  elevation: 0,
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8))),
-            )),
-          ],
-        ]),
-      ]),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(bill.customerName,
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary, fontFamily: 'Poppins')),
+                    Text(bill.invoiceNumber,
+                        style: const TextStyle(fontSize: 11,
+                            color: AppColors.textHint, fontFamily: 'Poppins')),
+                  ])),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                    color: _statusColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(100),
+                    border: Border.all(
+                        color: _statusColor.withValues(alpha: 0.3))),
+                child: Text(_statusLabel,
+                    style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800,
+                        color: _statusColor, fontFamily: 'Poppins',
+                        letterSpacing: 0.5)),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                onPressed: () => ctrl.viewInvoice(bill),
+                icon: const Icon(Icons.picture_as_pdf_rounded,
+                    size: 20, color: AppColors.primary),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                tooltip: 'View Invoice PDF',
+              ),
+            ]),
+            const Divider(height: 16, color: AppColors.divider),
+            Row(children: [
+              _BillStat(label: 'Total',    value: '₹${bill.totalAmount.toStringAsFixed(0)}'),
+              const SizedBox(width: 16),
+              _BillStat(label: 'Deliveries', value: '${bill.totalDeliveries}'),
+              const SizedBox(width: 16),
+              _BillStat(label: 'Paid',     value: '₹${bill.paidAmount.toStringAsFixed(0)}',
+                  color: AppColors.success),
+              const SizedBox(width: 16),
+              _BillStat(label: 'Pending',  value: '₹${bill.pendingAmount.toStringAsFixed(0)}',
+                  color: AppColors.error),
+            ]),
+            const SizedBox(height: 10),
+            Row(children: [
+              Expanded(child: OutlinedButton.icon(
+                onPressed: () => Get.toNamed(
+                    Routes.customerLedger,
+                    arguments: {'customerId': bill.customerId,
+                      'customerName': bill.customerName}),
+                icon: const Icon(Icons.list_alt_rounded, size: 15),
+                label: const Text('Ledger',
+                    style: TextStyle(fontSize: 12, fontFamily: 'Poppins')),
+                style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    side: const BorderSide(color: AppColors.primary),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8))),
+              )),
+              if (bill.pendingAmount > 0) ...[
+                const SizedBox(width: 8),
+                Expanded(child: ElevatedButton.icon(
+                  onPressed: () => _showPaymentSheet(context, bill),
+                  icon: const Icon(Icons.payments_outlined, size: 15,
+                      color: Colors.white),
+                  label: const Text('Collect',
+                      style: TextStyle(fontSize: 12, fontFamily: 'Poppins',
+                          color: Colors.white, fontWeight: FontWeight.w700)),
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.success,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8))),
+                )),
+              ],
+            ]),
+          ]),
+        ),
+        if (bill.status == InvoiceStatus.paid)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Center(
+                child: Transform.rotate(
+                  angle: -0.2,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: AppColors.success.withValues(alpha: 0.4), width: 3),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'PAID',
+                      style: TextStyle(
+                        fontSize: 40,
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.success.withValues(alpha: 0.2),
+                        fontFamily: 'Poppins',
+                        letterSpacing: 4,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 

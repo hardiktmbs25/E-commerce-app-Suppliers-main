@@ -74,10 +74,10 @@ const Map<String, String> kUnitLabels = {
 
 /// Keys stored in Firestore `frequency` field.
 const List<String> kFrequencies = [
-  'daily',
-  'twice_daily',
-  'thrice_daily',
-  'alternate',
+  'onceDaily',
+  'twiceDaily',
+  'thriceDaily',
+  'alternateDay',
   'weekdays',
   'weekends',
   'weekly',
@@ -85,10 +85,10 @@ const List<String> kFrequencies = [
 
 /// Human-readable frequency labels.
 const Map<String, String> kFrequencyLabels = {
-  'daily':        'Every Day',
-  'twice_daily':  'Twice a Day',
-  'thrice_daily': 'Thrice a Day',
-  'alternate':    'Alternate Days',
+  'onceDaily':    'Every Day',
+  'twiceDaily':   'Twice a Day',
+  'thriceDaily':  'Thrice a Day',
+  'alternateDay': 'Alternate Days',
   'weekdays':     'Weekdays (Mon – Fri)',
   'weekends':     'Weekends (Sat & Sun)',
   'weekly':       'Once a Week',
@@ -96,10 +96,10 @@ const Map<String, String> kFrequencyLabels = {
 
 /// How many time-slot IDs the plan must carry for each frequency.
 const Map<String, int> kRequiredSlotsForFrequency = {
-  'daily':        1,
-  'twice_daily':  2,
-  'thrice_daily': 3,
-  'alternate':    1,
+  'onceDaily':    1,
+  'twiceDaily':   2,
+  'thriceDaily':  3,
+  'alternateDay': 1,
   'weekdays':     1,
   'weekends':     1,
   'weekly':       1,

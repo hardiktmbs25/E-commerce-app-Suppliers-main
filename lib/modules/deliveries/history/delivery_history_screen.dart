@@ -2,7 +2,6 @@
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-
 import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/extensions.dart';
 import '../../../data/models/delivery_model.dart';
@@ -344,7 +343,6 @@ class _HistoryCard extends StatelessWidget {
             ),
 
             const SizedBox(width: 4),
-
             const Icon(
               Icons.chevron_right_rounded,
               size: 18,

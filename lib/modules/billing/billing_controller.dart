@@ -20,10 +20,13 @@ import '../../data/repositories/billing_repository.dart';
 import '../../services/billing_service.dart';
 import '../../services/local_storage_service.dart';
 import '../../data/repositories/customer_repository.dart';
+import '../../services/pdf_service.dart';
+import 'package:printing/printing.dart';
 
 class BillingController extends GetxController {
   final BillingRepository _repo    = Get.find<BillingRepository>();
   final BillingService    _billing = Get.find<BillingService>();
+  final PdfService        _pdf     = Get.find<PdfService>();
 
   // ── Tab ───────────────────────────────────────────────────────────────
   final RxInt tabIndex = 0.obs;
@@ -33,6 +36,8 @@ class BillingController extends GetxController {
 
   // ── Overview stats (live from Firestore streams) ──────────────────────
   final RxList<InvoiceModel> pendingBills   = <InvoiceModel>[].obs;
+  final RxList<InvoiceModel> paidBills      = <InvoiceModel>[].obs;
+  final RxBool   showPaidInOverview         = false.obs;
   final RxDouble totalPending               = 0.0.obs;
   final RxDouble totalPaid                  = 0.0.obs;
   final RxDouble todayCollection            = 0.0.obs;
@@ -59,6 +64,7 @@ class BillingController extends GetxController {
   final RxString selectedPayMethod  = 'cash'.obs;
 
   StreamSubscription? _pendingSub;
+  StreamSubscription? _paidSub;
   StreamSubscription? _todayPaySub;
   StreamSubscription? _customerSub;
 
@@ -123,6 +129,13 @@ class BillingController extends GetxController {
         AppLogger.e('BillingController pendingBills stream', e);
         isLoadingOverview.value = false;
       },
+    );
+
+    _paidSub = _repo.watchPaidInvoices(vendorId!).listen(
+          (bills) {
+        paidBills.assignAll(bills);
+      },
+      onError: (e) => AppLogger.e('BillingController paidBills stream', e),
     );
 
     _todayPaySub = _repo.watchTodayPayments(vendorId!).listen(
@@ -348,12 +361,38 @@ class BillingController extends GetxController {
   }
 
   // ══════════════════════════════════════════════════════════════════════
+  // VIEW INVOICE
+  // ══════════════════════════════════════════════════════════════════════
+
+  Future<void> viewInvoice(InvoiceModel bill) async {
+    try {
+      final customer = allCustomers.firstWhereOrNull((c) => c.id == bill.customerId);
+      if (customer == null) {
+        Get.snackbar('Error', 'Customer not found.');
+        return;
+      }
+
+      final file = await _pdf.generateInvoicePdf(bill, customer);
+      final bytes = await file.readAsBytes();
+
+      await Printing.layoutPdf(
+        onLayout: (_) => bytes,
+        name: 'Invoice_${bill.invoiceNumber}',
+      );
+    } catch (e) {
+      AppLogger.e('BillingController: viewInvoice error', e);
+      Get.snackbar('Error', 'Could not open invoice.');
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
   // DISPOSE
   // ══════════════════════════════════════════════════════════════════════
 
   @override
   void onClose() {
     _pendingSub?.cancel();
+    _paidSub?.cancel();
     _todayPaySub?.cancel();
     _customerSub?.cancel();
     paymentAmountCtrl.dispose();

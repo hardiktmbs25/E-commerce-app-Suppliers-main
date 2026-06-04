@@ -17,6 +17,8 @@ import '../../widgets/dialogs/confirm_dialog.dart';
 import '../../core/utils/extensions.dart';
 import 'subscriptions_controller.dart';
 
+// MergedSubscription is defined in subscriptions_controller.dart
+
 class SubscriptionsScreen extends StatelessWidget {
   const SubscriptionsScreen({super.key});
 
@@ -134,8 +136,8 @@ class SubscriptionsScreen extends StatelessWidget {
               separatorBuilder: (_, __) => const SizedBox(height: 20),
               itemBuilder: (_, i) {
                 final customerId = customerIds[i];
-                final subs = ctrl.groupedSubs[customerId]!;
-                final customerName = subs.first.customerName;
+                final mergedList = ctrl.groupedSubs[customerId]!;
+                final customerName = mergedList.first.customerName;
 
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -152,11 +154,12 @@ class SubscriptionsScreen extends StatelessWidget {
                         ),
                       ),
                     ),
-                    ...subs.map((sub) {
+                    ...mergedList.map((merged) {
                       final serviceColor =
-                          ServiceConstants.colorFor(sub.serviceTypeStr);
+                      ServiceConstants.colorFor(merged.serviceTypeStr);
                       final serviceIcon =
-                          ServiceConstants.iconFor(sub.serviceTypeStr);
+                      ServiceConstants.iconFor(merged.serviceTypeStr);
+                      final isMerged = merged.sources.length > 1;
 
                       return Container(
                         margin: const EdgeInsets.only(bottom: 12),
@@ -174,7 +177,6 @@ class SubscriptionsScreen extends StatelessWidget {
                               child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  // Service icon circle
                                   Container(
                                     width: 36,
                                     height: 36,
@@ -186,25 +188,40 @@ class SubscriptionsScreen extends StatelessWidget {
                                         size: 18, color: serviceColor),
                                   ),
                                   const SizedBox(width: 12),
-                                  // Customer name + service
                                   Expanded(
                                     child: Column(
                                       crossAxisAlignment:
-                                          CrossAxisAlignment.start,
+                                      CrossAxisAlignment.start,
                                       children: [
-                                        Text(
-                                          ServiceConstants.labelFor(
-                                              sub.serviceTypeStr),
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: serviceColor,
-                                            fontWeight: FontWeight.w700,
-                                            fontFamily: 'Poppins',
+                                        Row(children: [
+                                          Text(
+                                            ServiceConstants.labelFor(
+                                                merged.serviceTypeStr),
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              color: serviceColor,
+                                              fontWeight: FontWeight.w700,
+                                              fontFamily: 'Poppins',
+                                            ),
                                           ),
-                                        ),
+                                          if (isMerged) ...[
+                                            const SizedBox(width: 6),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: AppColors.primary.withOpacity(0.10),
+                                                borderRadius: BorderRadius.circular(8),
+                                              ),
+                                              child: Text(
+                                                '${merged.sources.length} plans',
+                                                style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: AppColors.primary, fontFamily: 'Poppins'),
+                                              ),
+                                            ),
+                                          ],
+                                        ]),
                                         const SizedBox(height: 2),
                                         Text(
-                                          'Start Date: ${sub.startDate.dayMonth}',
+                                          'Start Date: ${merged.startDate.dayMonth}',
                                           style: const TextStyle(
                                             fontSize: 11,
                                             color: AppColors.textHint,
@@ -214,10 +231,9 @@ class SubscriptionsScreen extends StatelessWidget {
                                       ],
                                     ),
                                   ),
-                                  // Status badge
                                   _StatusBadge(
-                                      isActive: sub.isActive,
-                                      label: sub.statusStr),
+                                      isActive: merged.isActive,
+                                      label: merged.statusStr),
                                 ],
                               ),
                             ),
@@ -228,16 +244,16 @@ class SubscriptionsScreen extends StatelessWidget {
                               child: Row(children: [
                                 _InfoChip(
                                   icon: Icons.scale_rounded,
-                                  label: '${sub.quantity} ${sub.unit}',
+                                  label: '${merged.quantity.toStringAsFixed(merged.quantity % 1 == 0 ? 0 : 1)} ${merged.unit}',
                                 ),
                                 const SizedBox(width: 8),
                                 _InfoChip(
                                   icon: Icons.repeat_rounded,
-                                  label: sub.frequencyLabel,
+                                  label: merged.frequencyLabel,
                                 ),
                                 const Spacer(),
                                 Text(
-                                  '₹${sub.pricePerDelivery.toStringAsFixed(0)}/del',
+                                  '₹${merged.pricePerDelivery.toStringAsFixed(0)}/del',
                                   style: const TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w700,
@@ -249,7 +265,7 @@ class SubscriptionsScreen extends StatelessWidget {
                             ),
 
                             // ── Time slots ─────────────────────────────────
-                            if (sub.effectiveSlots.isNotEmpty)
+                            if (merged.effectiveSlots.isNotEmpty)
                               Padding(
                                 padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
                                 child: Row(children: [
@@ -257,7 +273,7 @@ class SubscriptionsScreen extends StatelessWidget {
                                       size: 14, color: AppColors.textHint),
                                   const SizedBox(width: 4),
                                   Text(
-                                    sub.effectiveSlots.join(' · '),
+                                    merged.effectiveSlots.join(' · '),
                                     style: const TextStyle(
                                       fontSize: 12,
                                       color: AppColors.textHint,
@@ -267,80 +283,57 @@ class SubscriptionsScreen extends StatelessWidget {
                                 ]),
                               ),
 
-                            // ── Actions divider ────────────────────────────
+                            // ── Actions ────────────────────────────────────
                             const Divider(height: 1, color: AppColors.divider),
                             Padding(
                               padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
                               child: Row(children: [
                                 Expanded(
                                   child: TextButton.icon(
-                                    onPressed: () => Get.toNamed(Routes.addSubscription, arguments: sub),
+                                    onPressed: () => Get.toNamed(Routes.addSubscription, arguments: merged),
                                     icon: const Icon(Icons.edit_rounded, size: 16),
                                     label: const Text('Edit'),
                                     style: TextButton.styleFrom(
                                       foregroundColor: AppColors.primary,
-                                      textStyle: const TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                          fontFamily: 'Poppins'),
-                                      padding: const EdgeInsets.symmetric(
-                                          vertical: 8),
+                                      textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, fontFamily: 'Poppins'),
+                                      padding: const EdgeInsets.symmetric(vertical: 8),
                                     ),
                                   ),
                                 ),
-                                Container(
-                                    width: 1, height: 20, color: AppColors.divider),
+                                Container(width: 1, height: 20, color: AppColors.divider),
                                 Expanded(
                                   child: TextButton.icon(
-                                    onPressed: () => ctrl.togglePause(sub),
-
+                                    onPressed: () => ctrl.togglePauseMerged(merged),
                                     icon: Icon(
-                                      sub.isActive
-                                          ? Icons.pause_rounded
-                                          : Icons.play_arrow_rounded,
+                                      merged.isActive ? Icons.pause_rounded : Icons.play_arrow_rounded,
                                       size: 16,
                                     ),
-                                    label: Text(sub.isActive ? 'Pause' : 'Resume'),
+                                    label: Text(merged.isActive ? 'Pause' : 'Resume'),
                                     style: TextButton.styleFrom(
-                                      foregroundColor: sub.isActive
-                                          ? AppColors.warning
-                                          : AppColors.success,
-                                      textStyle: const TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                          fontFamily: 'Poppins'),
-                                      padding: const EdgeInsets.symmetric(
-                                          vertical: 8),
+                                      foregroundColor: merged.isActive ? AppColors.warning : AppColors.success,
+                                      textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, fontFamily: 'Poppins'),
+                                      padding: const EdgeInsets.symmetric(vertical: 8),
                                     ),
                                   ),
                                 ),
-                                Container(
-                                    width: 1, height: 20, color: AppColors.divider),
+                                Container(width: 1, height: 20, color: AppColors.divider),
                                 Expanded(
                                   child: TextButton.icon(
                                     onPressed: () async {
                                       final ok = await showConfirmDialog(
                                         title: 'Cancel Subscription',
-                                        message:
-                                            "Cancel this ${sub.serviceTypeStr} subscription?",
+                                        message: "Cancel this ${merged.serviceTypeStr} subscription?",
                                         confirmLabel: 'Yes, Cancel',
                                         isDangerous: true,
                                       );
-                                      if (ok == true) {
-                                        ctrl.cancelSubscription(sub);
-                                      }
+                                      if (ok == true) ctrl.cancelMerged(merged);
                                     },
-                                    icon: const Icon(Icons.cancel_outlined,
-                                        size: 16),
+                                    icon: const Icon(Icons.cancel_outlined, size: 16),
                                     label: const Text('Cancel'),
                                     style: TextButton.styleFrom(
                                       foregroundColor: AppColors.error,
-                                      textStyle: const TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                          fontFamily: 'Poppins'),
-                                      padding: const EdgeInsets.symmetric(
-                                          vertical: 8),
+                                      textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, fontFamily: 'Poppins'),
+                                      padding: const EdgeInsets.symmetric(vertical: 8),
                                     ),
                                   ),
                                 ),

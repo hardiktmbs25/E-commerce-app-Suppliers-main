@@ -165,8 +165,14 @@ class PlanModel extends HiveObject {
 
   /// Migrate old frequency key spellings.
   static String _normaliseFreq(String f) {
-    if (f == 'alternateDay') return 'alternate';
-    if (f == 'custom')       return 'daily'; // legacy fallback
-    return f;
+    // Keys must match FrequencyConstants.fromStr expectations
+    switch (f) {
+      case 'daily':        return 'onceDaily';    // legacy compat
+      case 'alternate':    return 'alternateDay'; // legacy compat
+      case 'twice_daily':  return 'twiceDaily';   // legacy compat
+      case 'thrice_daily': return 'thriceDaily';  // legacy compat
+      case 'custom':       return 'onceDaily';    // legacy fallback
+      default:             return f;              // 'onceDaily', 'weekly', etc. pass through
+    }
   }
 }

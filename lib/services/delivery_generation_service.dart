@@ -1,13 +1,16 @@
 // lib/services/delivery_generation_service.dart
+
 import 'package:get/get.dart';
 import 'package:uuid/uuid.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../core/constants/app_constants.dart';
-import '../core/utils/logger.dart';
-import '../data/models/delivery_model.dart';
-import '../data/models/sync_action_model.dart';
-import 'connectivity_service.dart';
-import 'local_storage_service.dart';
+
+import 'package:e_commerce_suppliers/core/constants/app_constants.dart';
+import 'package:e_commerce_suppliers/core/utils/logger.dart';
+import 'package:e_commerce_suppliers/data/models/delivery_model.dart';
+import 'package:e_commerce_suppliers/data/models/subscription_model.dart';
+import 'package:e_commerce_suppliers/data/models/sync_action_model.dart';
+import 'package:e_commerce_suppliers/services/connectivity_service.dart';
+import 'package:e_commerce_suppliers/services/local_storage_service.dart';
 
 class DeliveryGenerationService extends GetxService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -23,8 +26,9 @@ class DeliveryGenerationService extends GetxService {
   /// Creates deliveries for every active subscription that has [targetSlot]
   /// in its effectiveSlots, scheduled for [date].
   ///
-  /// Uses deterministic IDs (subId_dateKey_safeSlot) so re-running is safe —
-  /// already-existing deliveries are silently skipped.
+  /// Deliveries are keyed on customerId + serviceType + slot + date,
+  /// NOT on subscriptionId — so multiple subscriptions for the same customer
+  /// at the same slot are merged into a single delivery with summed qty/amount.
   Future<int> generateForDateAndSlot(
       String vendorId,
       DateTime date,
@@ -40,9 +44,8 @@ class DeliveryGenerationService extends GetxService {
       for (final c in LocalStorageService.getCustomers()) c.id: c,
     };
 
-    int count = 0;
-    final batch = _db.batch();
-    final List<DeliveryModel> localToSave = [];
+    // ── Group subscriptions by customer + serviceType for this slot/date ──
+    final Map<String, List<SubscriptionModel>> groups = {};
 
     for (final sub in subscriptions) {
       if (!sub.shouldDeliverOn(date)) continue;
@@ -51,25 +54,45 @@ class DeliveryGenerationService extends GetxService {
       final customer = customerMap[sub.customerId];
       if (customer != null && customer.statusStr == 'inactive') continue;
 
-      // Deterministic ID — prevents duplicates if vendor taps Generate twice
-      final dateKey    = _dateKey(date);
-      final safeSlot   = targetSlot.replaceAll(' ', '_').replaceAll(':', '');
-      final deliveryId = '${sub.id}_${dateKey}_$safeSlot';
+      final groupKey = '${sub.customerId}__${sub.serviceTypeStr}';
+      groups.putIfAbsent(groupKey, () => []).add(sub);
+    }
 
-      // Skip if already exists locally
-      if (_existsLocally(sub.id, date, targetSlot)) continue;
+    if (groups.isEmpty) return 0;
+
+    int count = 0;
+    final batch = _db.batch();
+    final List<DeliveryModel> localToSave = [];
+
+    for (final entry in groups.entries) {
+      final subs = entry.value;
+      final first = subs.first;
+      final customer = customerMap[first.customerId];
+
+      final dateKey  = _dateKey(date);
+      final safeSlot = targetSlot.replaceAll(' ', '_').replaceAll(':', '');
+      final deliveryId =
+          '${first.customerId}_${first.serviceTypeStr}_${safeSlot}_$dateKey';
+
+      if (_existsLocally(deliveryId)) continue;
+
+      // Correctly sum quantities and amounts
+      final double totalQty = subs.fold(0.0, (s, item) => s + item.quantity);
+      final double totalAmount = subs.fold(0.0, (s, item) => s + item.pricePerDelivery);
+      
+      final String primarySubId = first.id;
 
       final delivery = DeliveryModel(
         id:              deliveryId,
         vendorId:        vendorId,
-        customerId:      sub.customerId,
-        customerName:    sub.customerName,
+        customerId:      first.customerId,
+        customerName:    first.customerName,
         customerAddress: customer?.address ?? '',
-        subscriptionId:  sub.id,
-        serviceTypeStr:  sub.serviceTypeStr,
-        quantity:        sub.quantity,
-        unit:            sub.unit,
-        amount:          sub.pricePerDelivery,
+        subscriptionId:  primarySubId,
+        serviceTypeStr:  first.serviceTypeStr,
+        quantity:        totalQty,
+        unit:            first.unit,
+        amount:          totalAmount,
         scheduledDate:   _slotDateTime(date, targetSlot),
         deliverySlot:    targetSlot,
         routeOrder:      0,
@@ -102,7 +125,7 @@ class DeliveryGenerationService extends GetxService {
       } catch (e) {
         AppLogger.e('GenerationService: batch commit failed — queuing offline', e);
         for (final d in localToSave) {
-          _enqueueOffline(vendorId, d..copyWith(isSynced: false));
+          _enqueueOffline(vendorId, d.copyWith(isSynced: false));
         }
       }
     }
@@ -112,7 +135,8 @@ class DeliveryGenerationService extends GetxService {
     }
 
     if (count > 0) {
-      AppLogger.i('GenerationService: +$count deliveries  slot=$targetSlot  date=${_dateKey(date)}');
+      AppLogger.i(
+          'GenerationService: +$count deliveries merged for slot=$targetSlot date=${_dateKey(date)}');
     }
     return count;
   }
@@ -121,11 +145,8 @@ class DeliveryGenerationService extends GetxService {
   // HELPERS
   // ─────────────────────────────────────────────────────────────
 
-  bool _existsLocally(String subscriptionId, DateTime date, String slot) =>
-      LocalStorageService.getDeliveries().any((d) =>
-      d.subscriptionId == subscriptionId &&
-          d.deliverySlot == slot &&
-          _sameDay(d.scheduledDate, date));
+  bool _existsLocally(String deliveryId) =>
+      LocalStorageService.getDeliveries().any((d) => d.id == deliveryId);
 
   void _enqueueOffline(String vendorId, DeliveryModel d) {
     LocalStorageService.enqueueSyncAction(SyncActionModel(
@@ -138,22 +159,25 @@ class DeliveryGenerationService extends GetxService {
     ));
   }
 
-  bool _sameDay(DateTime a, DateTime b) =>
-      a.year == b.year && a.month == b.month && a.day == b.day;
-
   String _dateKey(DateTime d) => '${d.year}-${d.month}-${d.day}';
 
-  /// Parses "03:00 PM" → DateTime on [baseDate] at 15:00.
   DateTime _slotDateTime(DateTime baseDate, String slot) {
-    final parts = slot.trim().toUpperCase().split(' ');
-    if (parts.length != 2) {
-      return DateTime(baseDate.year, baseDate.month, baseDate.day, 7, 0);
+    final s = slot.trim().toUpperCase();
+    int hour = 7;
+    int minute = 0;
+
+    if (s.contains('AM') || s.contains('PM')) {
+      final parts = s.split(' ');
+      final tp = parts[0].split(':');
+      hour   = int.tryParse(tp[0]) ?? 7;
+      minute = tp.length > 1 ? (int.tryParse(tp[1]) ?? 0) : 0;
+      if (parts[1] == 'PM' && hour != 12) hour += 12;
+      if (parts[1] == 'AM' && hour == 12) hour = 0;
+    } else {
+      final parts = s.split(':');
+      hour   = int.tryParse(parts[0]) ?? 7;
+      minute = parts.length > 1 ? (int.tryParse(parts[1]) ?? 0) : 0;
     }
-    final tp     = parts[0].split(':');
-    int hour     = int.tryParse(tp[0]) ?? 7;
-    int minute   = tp.length > 1 ? (int.tryParse(tp[1]) ?? 0) : 0;
-    if (parts[1] == 'PM' && hour != 12) hour += 12;
-    if (parts[1] == 'AM' && hour == 12) hour = 0;
     return DateTime(baseDate.year, baseDate.month, baseDate.day, hour, minute);
   }
 }

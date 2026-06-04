@@ -7,10 +7,12 @@ import '../../../data/models/customer_model.dart';
 import '../../../data/models/subscription_model.dart';
 import '../../../data/models/plan_model.dart';
 import '../../../data/models/time_slot_model.dart';
+import '../../../data/models/delivery_area_model.dart';
 import '../../../data/repositories/subscription_repository.dart';
 import '../../../data/repositories/global_plan_repository.dart';
 import '../../../services/delivery_scheduler_service.dart';
 import '../../../services/local_storage_service.dart';
+import '../subscriptions_controller.dart' show MergedSubscription;
 
 class SelectedPlanItem {
   final String id;
@@ -57,9 +59,14 @@ class AddSubscriptionController extends GetxController {
 
   final timeSlots = <TimeSlotModel>[].obs;
 
+  final deliveryAreas = <DeliveryAreaModel>[].obs;
+
   final selectedDropdownPlan = Rxn<PlanModel>();
 
   final Rxn<SubscriptionModel> editingSub = Rxn<SubscriptionModel>();
+
+  /// All subscriptions in the merged group being edited (null in create mode).
+  final Rxn<MergedSubscription> editingMerged = Rxn<MergedSubscription>();
 
   // ─────────────────────────────────────────────────────────────
   // Derived
@@ -108,36 +115,84 @@ class AddSubscriptionController extends GetxController {
   void onInit() {
     super.onInit();
 
-    if (Get.arguments is SubscriptionModel) {
-      editingSub.value = Get.arguments;
-      _prefillEditMode();
+    if (Get.arguments is MergedSubscription) {
+      final merged = Get.arguments as MergedSubscription;
+      editingMerged.value = merged;
+      editingSub.value = merged.first; // keep for backward compat checks
+      _prefillEditMode(merged);
+    } else if (Get.arguments is SubscriptionModel) {
+      // Legacy: single sub passed (wrap it)
+      final sub = Get.arguments as SubscriptionModel;
+      editingSub.value = sub;
+      final fakeMerged = MergedSubscription([sub]);
+      editingMerged.value = fakeMerged;
+      _prefillEditMode(fakeMerged);
     }
 
     loadPlansAndSlots();
   }
 
-  void _prefillEditMode() {
-    final sub = editingSub.value!;
-    notesCtrl.text = sub.notes ?? '';
-    startDate.value = sub.startDate;
-    selectedCustomer.value = LocalStorageService.getCustomer(sub.customerId);
+  void _prefillEditMode(MergedSubscription merged) {
+    final first = merged.first;
+    notesCtrl.text = first.notes ?? '';
+    startDate.value = first.startDate;
+    selectedCustomer.value = LocalStorageService.getCustomer(first.customerId);
 
-    // Create a pseudo-plan based on current subscription values for display in basket
-    // This allows the user to see what they have and optionally remove/replace it.
-    final mockPlan = PlanModel(
-      id: 'current',
-      vendorId: sub.vendorId,
-      name: 'Current Config',
-      serviceType: sub.serviceTypeStr,
-      frequencyStr: sub.frequencyStr,
-      quantity: sub.quantity,
-      unit: sub.unit,
-      pricePerUnit: sub.pricePerUnit,
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-    );
+    // For each subscription in the merged group, create a SelectedPlanItem.
+    // We first try to match a real active plan; fall back to a mock plan built
+    // from the subscription's own values so nothing is ever missing.
+    selectedPlans.clear();
+    for (final sub in merged.sources) {
+      // Try to find the matching plan in already-loaded activePlans.
+      // activePlans may not be loaded yet at this point, so we build a
+      // provisional mock plan and replace it later in _matchPlansAfterLoad().
+      final mockPlan = PlanModel(
+        id: 'sub_${sub.id}',
+        vendorId: sub.vendorId,
+        name: _buildPlanName(sub),
+        serviceType: sub.serviceTypeStr,
+        frequencyStr: sub.frequencyStr,
+        quantity: sub.quantity,
+        unit: sub.unit,
+        pricePerUnit: sub.pricePerUnit,
+        deliverySlotIds: const [],
+        deliveryAreaIds: const [],
+        createdAt: sub.createdAt,
+        updatedAt: sub.updatedAt,
+      );
+      selectedPlans.add(SelectedPlanItem(id: sub.id, plan: mockPlan));
+    }
+  }
 
-    selectedPlans.add(SelectedPlanItem(id: 'current', plan: mockPlan));
+  String _buildPlanName(SubscriptionModel sub) {
+    final freq = sub.frequencyLabel;
+    return '${sub.quantity.toStringAsFixed(sub.quantity % 1 == 0 ? 0 : 1)} ${sub.unit} · $freq · ₹${sub.pricePerDelivery.toStringAsFixed(0)}/del';
+  }
+
+  /// After plans are loaded from Firestore, replace mock plans with real ones
+  /// so the basket shows the actual plan names and full details.
+  void _matchPlansAfterLoad() {
+    if (editingMerged.value == null) return;
+    final merged = editingMerged.value!;
+    final updated = <SelectedPlanItem>[];
+
+    for (final sub in merged.sources) {
+      // Match by service type + frequency + price
+      final real = activePlans.firstWhereOrNull((p) =>
+      p.serviceType == sub.serviceTypeStr &&
+          p.frequencyStr == sub.frequencyStr &&
+          (p.pricePerDelivery - sub.pricePerDelivery).abs() < 0.01
+      );
+      if (real != null) {
+        updated.add(SelectedPlanItem(id: sub.id, plan: real));
+      } else {
+        // Keep the mock plan built from subscription data
+        final existing = selectedPlans.firstWhereOrNull((s) => s.id == sub.id);
+        if (existing != null) updated.add(existing);
+      }
+    }
+
+    if (updated.isNotEmpty) selectedPlans.assignAll(updated);
   }
 
 
@@ -168,6 +223,15 @@ class AddSubscriptionController extends GetxController {
       },
     );
 
+    // Load areas
+    final areasResult = await _planRepo.fetchAreas(vendorId!);
+    areasResult.fold(
+          (failure) {},
+          (list) {
+        deliveryAreas.assignAll(list);
+      },
+    );
+
     // Load plans
     final plansResult =
     await _planRepo.fetchPlans(vendorId!);
@@ -192,6 +256,8 @@ class AddSubscriptionController extends GetxController {
             .toList();
 
         activePlans.assignAll(filtered);
+        // In edit mode, replace mock plans with real matched plans
+        if (editingMerged.value != null) _matchPlansAfterLoad();
       },
     );
   }
@@ -312,37 +378,59 @@ class AddSubscriptionController extends GetxController {
     try {
       if (editingSub.value != null) {
         // ── UPDATE MODE ──────────────────────────────────────────────
-        final item = selectedPlans.first;
-        final plan = item.plan;
+        // Update each plan in the basket, matched to the corresponding
+        // original subscription in the merged group by position.
+        final merged = editingMerged.value;
+        final originalSubs = merged?.sources ?? [editingSub.value!];
+        int successCount = 0;
+        SubscriptionModel? lastUpdated;
 
-        final resolvedSlots = plan.deliverySlotIds
-            .map((slotId) {
-          final slot = timeSlots.firstWhereOrNull((s) => s.id == slotId);
-          return slot?.startTime ?? '07:00 AM';
-        }).toList();
+        for (int i = 0; i < selectedPlans.length; i++) {
+          final item = selectedPlans[i];
+          final plan = item.plan;
+          // Match to original sub by id (set during prefill) or by position
+          final originalSub = originalSubs.firstWhereOrNull((s) => s.id == item.id)
+              ?? (i < originalSubs.length ? originalSubs[i] : originalSubs.first);
 
-        if (resolvedSlots.isEmpty) resolvedSlots.add('07:00 AM');
+          final resolvedSlots = plan.deliverySlotIds
+              .map((slotId) {
+            final slot = timeSlots.firstWhereOrNull((s) => s.id == slotId);
+            // FIX: use startTime (e.g. '06:00') not label ('6:00 AM - 7:00 AM')
+            // The delivery picker passes slot.startTime, so stored value must match.
+            return slot?.startTime ?? '07:00';
+          }).toList();
+          if (resolvedSlots.isEmpty) resolvedSlots.addAll(originalSub.effectiveSlots);
+          if (resolvedSlots.isEmpty) resolvedSlots.add('07:00');
 
-        final updatedSub = editingSub.value!.copyWith(
-          serviceTypeStr: plan.serviceType,
-          frequencyStr: plan.frequencyStr,
-          quantity: plan.quantity,
-          pricePerUnit: plan.pricePerUnit,
-          pricePerDelivery: plan.pricePerDelivery,
-          deliverySlots: resolvedSlots,
-          notes: notesCtrl.text.trim().isEmpty ? null : notesCtrl.text.trim(),
-          autoResume: true, // Reset autoResume on edit
-        );
+          final updatedSub = originalSub.copyWith(
+            serviceTypeStr: plan.serviceType,
+            frequencyStr: plan.frequencyStr,
+            quantity: plan.quantity,
+            pricePerUnit: plan.pricePerUnit,
+            pricePerDelivery: plan.pricePerDelivery,
+            deliverySlots: resolvedSlots,
+            notes: notesCtrl.text.trim().isEmpty ? null : notesCtrl.text.trim(),
+            autoResume: true,
+          );
 
-        final result = await _repo.updateSubscription(vendorId!, updatedSub);
-
-        result.fold(
+          final result = await _repo.updateSubscription(vendorId!, updatedSub);
+          result.fold(
                 (failure) => Get.snackbar('Error', failure.message, snackPosition: SnackPosition.TOP),
                 (_) {
-              Get.back(result: updatedSub);
-              Get.snackbar('✅ Updated', 'Subscription updated successfully.', snackPosition: SnackPosition.TOP);
-            }
-        );
+              successCount++;
+              lastUpdated = updatedSub;
+            },
+          );
+        }
+
+        if (successCount > 0) {
+          Get.back(result: lastUpdated);
+          Get.snackbar(
+            '✅ Updated',
+            '$successCount subscription(s) updated successfully.',
+            snackPosition: SnackPosition.TOP,
+          );
+        }
       } else {
         // ── CREATE MODE ──────────────────────────────────────────────
         int successCount = 0;
@@ -356,13 +444,14 @@ class AddSubscriptionController extends GetxController {
             final slot = timeSlots.firstWhereOrNull(
                   (s) => s.id == slotId,
             );
-
-            return slot?.startTime ?? '07:00 AM';
+            // FIX: use startTime (e.g. '06:00') not label ('6:00 AM - 7:00 AM')
+            // The delivery picker passes slot.startTime, so stored value must match.
+            return slot?.startTime ?? '07:00';
           })
               .toList();
 
           if (resolvedSlots.isEmpty) {
-            resolvedSlots.add('07:00 AM');
+            resolvedSlots.add('07:00');
           }
 
           final result = await _repo.createSubscription(

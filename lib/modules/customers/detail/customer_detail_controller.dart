@@ -16,6 +16,7 @@ import '../../../services/whatsapp_service.dart';
 import '../../../data/repositories/customer_repository.dart';
 import '../../../core/utils/extensions.dart';
 import 'package:flutter/material.dart';
+import 'package:printing/printing.dart';
 
 class CustomerDetailController extends GetxController {
   final BillingRepository  _billingRepo  = Get.find<BillingRepository>();
@@ -109,6 +110,22 @@ class CustomerDetailController extends GetxController {
       await _whatsappService.sendInvoice(customer.value!.phone, message, file);
     } catch (e) {
       Get.snackbar('Error', 'Failed to share invoice: $e');
+    }
+  }
+
+  Future<void> viewInvoice(InvoiceModel invoice) async {
+    if (customer.value == null) return;
+    try {
+      final file = await _pdfService.generateInvoicePdf(invoice, customer.value!);
+      final bytes = await file.readAsBytes();
+
+      await Printing.layoutPdf(
+        onLayout: (_) => bytes,
+        name: 'Invoice_${invoice.invoiceNumber}',
+      );
+    } catch (e) {
+      AppLogger.e('CustomerDetailController: viewInvoice error', e);
+      Get.snackbar('Error', 'Could not open invoice.');
     }
   }
 

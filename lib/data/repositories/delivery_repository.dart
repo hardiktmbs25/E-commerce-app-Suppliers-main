@@ -1,22 +1,19 @@
 // lib/data/repositories/delivery_repository.dart
-//
-// FIXES APPLIED (cumulative):
-//  1. NULL-SAFE FIRESTORE PARSING — all doc['field'] accesses guarded
-//  2. DATE-NORMALIZED watchTodayDeliveries QUERY — calendar-day boundaries
-//  3. OFFLINE SYNC QUEUE RETRY LIMIT — max 5 retries before drop
-//  4. deleteDelivery uses full deliveries box (not just today's list)
-//  5. processSyncQueue handles all SyncActionTypes including createDelivery
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
 import 'package:uuid/uuid.dart';
-import '../../core/constants/app_constants.dart';
-import '../../core/errors/failures.dart';
-import '../../core/utils/logger.dart';
-import '../../services/connectivity_service.dart';
-import '../../services/local_storage_service.dart';
-import '../models/delivery_model.dart';
-import '../models/sync_action_model.dart';
+
+import 'package:e_commerce_suppliers/core/constants/app_constants.dart';
+import 'package:e_commerce_suppliers/core/errors/failures.dart';
+import 'package:e_commerce_suppliers/core/utils/logger.dart';
+import 'package:e_commerce_suppliers/services/connectivity_service.dart';
+import 'package:e_commerce_suppliers/services/customer_balance_service.dart';
+import 'package:e_commerce_suppliers/services/ledger_service.dart';
+import 'package:e_commerce_suppliers/services/local_storage_service.dart';
+import 'package:e_commerce_suppliers/data/models/delivery_model.dart';
+import 'package:e_commerce_suppliers/data/models/ledger_entry_model.dart';
+import 'package:e_commerce_suppliers/data/models/sync_action_model.dart';
 
 class DeliveryRepository {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -31,7 +28,6 @@ class DeliveryRepository {
   // ── Today's deliveries stream ─────────────────────────────────────────────
   Stream<List<DeliveryModel>> watchTodayDeliveries(String vendorId) {
     final today = DateTime.now();
-    // FIX #2: normalize to calendar-day boundaries (no time-skew)
     final start = DateTime(today.year, today.month, today.day);
     final end   = DateTime(today.year, today.month, today.day, 23, 59, 59);
 
@@ -45,7 +41,6 @@ class DeliveryRepository {
         .orderBy('routeOrder')
         .snapshots()
         .map((snap) {
-      // FIX #1: fromFirestore already uses null-safe parsing
       final deliveries =
       snap.docs.map((d) => DeliveryModel.fromFirestore(d)).toList();
       LocalStorageService.saveDeliveries(deliveries);
@@ -96,6 +91,25 @@ class DeliveryRepository {
     // 1. Update local cache immediately for instant UI feedback
     await LocalStorageService.saveDelivery(updated);
 
+    // 1b. Create instant ledger entry for delivered items (Post-charge)
+    if (newStatus == DeliveryStatus.delivered) {
+      final ledger = Get.find<LedgerService>();
+      await ledger.createEntry(
+        vendorId: vendorId,
+        customerId: delivery.customerId,
+        type: LedgerEntryType.charge,
+        amount: delivery.amount,
+        description: 'Delivery: ${delivery.serviceTypeStr} (${delivery.quantity} ${delivery.unit})',
+        referenceId: delivery.id,
+      );
+
+      // Update customer balance instantly
+      await Get.find<CustomerBalanceService>().recalculateCustomerBalance(
+        vendorId: vendorId,
+        customerId: delivery.customerId,
+      );
+    }
+
     final payload = {
       'status':      newStatus.name,
       'deliveredAt': newStatus == DeliveryStatus.delivered
@@ -109,7 +123,6 @@ class DeliveryRepository {
       try {
         final batch = _db.batch();
 
-        // 2a. Update delivery status in Firestore
         batch.update(
           _db.collection(_col(vendorId)).doc(delivery.id),
           {
@@ -122,7 +135,6 @@ class DeliveryRepository {
           },
         );
 
-        // 2b. If delivered and has subscription → update counters
         if (newStatus == DeliveryStatus.delivered && delivery.subscriptionId != null) {
           batch.update(
             _db
@@ -134,7 +146,6 @@ class DeliveryRepository {
             },
           );
 
-          // Update local cache count as well
           final subs = LocalStorageService.getSubscriptions();
           final sub = subs.firstWhereOrNull((s) => s.id == delivery.subscriptionId);
           if (sub != null) {
@@ -147,6 +158,7 @@ class DeliveryRepository {
         await batch.commit();
         await LocalStorageService.saveDelivery(
             updated.copyWith(isSynced: true));
+
         AppLogger.i('Delivery ${delivery.id} => ${newStatus.name}');
         return const Result.success(null);
       } catch (e) {
@@ -194,6 +206,23 @@ class DeliveryRepository {
 
     await LocalStorageService.saveDelivery(delivery);
 
+    // Create instant ledger entry for extra orders
+    final ledger = Get.find<LedgerService>();
+    await ledger.createEntry(
+      vendorId: vendorId,
+      customerId: customerId,
+      type: LedgerEntryType.extra,
+      amount: amount,
+      description: 'Extra Order: $serviceType ($quantity $unit)',
+      referenceId: id,
+    );
+
+    // Update customer balance instantly
+    await Get.find<CustomerBalanceService>().recalculateCustomerBalance(
+      vendorId: vendorId,
+      customerId: customerId,
+    );
+
     if (_connectivity.isOnline.value) {
       await _db
           .collection(_col(vendorId))
@@ -240,7 +269,6 @@ class DeliveryRepository {
       }
 
       final snap = await query.get();
-      // FIX #1: fromFirestore is null-safe for all fields
       return Result.success(
           snap.docs.map((d) => DeliveryModel.fromFirestore(d)).toList());
     } catch (e) {
@@ -284,20 +312,15 @@ class DeliveryRepository {
       String deliveryId,
       ) async {
     try {
-      // 1. Remove from Firestore (or queue for offline)
       if (_connectivity.isOnline.value) {
         await _db
             .collection(_col(vendorId))
             .doc(deliveryId)
             .delete();
       } else {
-        // Queue delete for later sync — we reuse a set with a deleted flag
-        // or simply skip offline delete (document will be orphaned until sync).
-        // For safety, we still remove from local cache.
         AppLogger.w('deleteDelivery: offline, removing from local cache only');
       }
 
-      // 2. Remove from local Hive box by key (not just today's list)
       final allDeliveries = LocalStorageService.getDeliveries();
       final remaining = allDeliveries.where((d) => d.id != deliveryId).toList();
       await LocalStorageService.clearDeliveries();

@@ -147,6 +147,10 @@ class SubscriptionModel extends HiveObject {
         return true;
       case DeliveryFrequency.alternateDay:
         return targetDate.difference(start).inDays % 2 == 0;
+      case DeliveryFrequency.weekdays:
+        return targetDate.weekday >= 1 && targetDate.weekday <= 5;
+      case DeliveryFrequency.weekends:
+        return targetDate.weekday == 6 || targetDate.weekday == 7;
       case DeliveryFrequency.weekly:
         return targetDate.weekday == start.weekday;
       default:

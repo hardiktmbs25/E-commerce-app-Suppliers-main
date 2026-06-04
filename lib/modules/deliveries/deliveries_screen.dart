@@ -41,314 +41,283 @@ class DeliveriesScreen extends StatelessWidget {
           ),
           // Mark All button
           Obx(
-                () => ctrl.pendingCount > 0
+            () => ctrl.pendingCount > 0
                 ? TextButton.icon(
-              onPressed: ctrl.markAllDelivered,
-              icon: const Icon(Icons.done_all_rounded, size: 16),
-              label: const Text(
-                'Mark All',
-                style: TextStyle(fontSize: 12, fontFamily: 'Poppins'),
-              ),
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.success,
-              ),
-            )
+                    onPressed: ctrl.markAllDelivered,
+                    icon: const Icon(Icons.done_all_rounded, size: 16),
+                    label: const Text(
+                      'Mark All',
+                      style: TextStyle(fontSize: 12, fontFamily: 'Poppins'),
+                    ),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.success,
+                    ),
+                  )
                 : const SizedBox(),
           ),
         ],
       ),
-      floatingActionButton: Obx(() => FloatingActionButton.extended(
-        heroTag: 'fab_deliveries',
-        onPressed: ctrl.isGenerating.value ? null : () => _showSlotPicker(context, ctrl),
-        backgroundColor: ctrl.isGenerating.value ? AppColors.border : AppColors.primary,
-        icon: ctrl.isGenerating.value
-            ? const SizedBox(
-            width: 18, height: 18,
-            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-            : const Icon(Icons.add_rounded, color: Colors.white),
-        label: Text(
-          ctrl.isGenerating.value ? 'Generating...' : 'Generate',
-          style: const TextStyle(
-            color: Colors.white,
-            fontFamily: 'Poppins',
-            fontWeight: FontWeight.w600,
-            fontSize: 13,
+      floatingActionButton: Obx(
+        () => FloatingActionButton.extended(
+          heroTag: 'fab_deliveries',
+          onPressed: ctrl.isGenerating.value
+              ? null
+              : () => _showSlotPicker(context, ctrl),
+          backgroundColor: ctrl.isGenerating.value
+              ? AppColors.border
+              : AppColors.primary,
+          icon: ctrl.isGenerating.value
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Icon(Icons.add_rounded, color: Colors.white),
+          label: Text(
+            ctrl.isGenerating.value ? 'Generating...' : 'Generate',
+            style: const TextStyle(
+              color: Colors.white,
+              fontFamily: 'Poppins',
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
           ),
         ),
-      )),
-      body: Column(
-        children: [
-          // Summary bar
-          Obx(
-                () => Container(
-              margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.border, width: 0.8),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _SummaryItem(
-                    'Total',
-                    '${ctrl.allDeliveries.length}',
-                    AppColors.primary,
-                  ),
-                  _Divider(),
-                  _SummaryItem(
-                    'Delivered',
-                    '${ctrl.deliveredCount}',
-                    AppColors.success,
-                  ),
-                  _Divider(),
-                  _SummaryItem(
-                    'Pending',
-                    '${ctrl.pendingCount}',
-                    AppColors.warning,
-                  ),
-                  _Divider(),
-                  _SummaryItem(
-                    'Missed',
-                    '${ctrl.missedCount}',
-                    AppColors.error,
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // Search bar
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            child: TextField(
-              controller: ctrl.searchCtrl,
-              onChanged: ctrl.onSearchChanged,
-              decoration: InputDecoration(
-                hintText: 'Search by customer or address...',
-                hintStyle: const TextStyle(
-                  fontFamily: 'Poppins',
-                  fontSize: 13,
-                  color: AppColors.textHint,
-                ),
-                prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                suffixIcon: Obx(
-                      () => ctrl.searchQuery.value.isNotEmpty
-                      ? IconButton(
-                    icon: const Icon(Icons.close_rounded, size: 18),
-                    onPressed: ctrl.clearSearch,
-                  )
-                      : const SizedBox(),
-                ),
-                contentPadding: const EdgeInsets.symmetric(vertical: 11),
-                filled: true,
-                fillColor: AppColors.surface,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: AppColors.border),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: AppColors.border),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(
-                    color: AppColors.primary,
-                    width: 1.5,
-                  ),
-                ),
-              ),
-              style: const TextStyle(fontFamily: 'Poppins', fontSize: 13),
-            ),
-          ),
-
-          // Filter chips
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-            child: Obx(
-                  () => SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children:
-                  [
-                    'all',
-                    'pending',
-                    'delivered',
-                    'missed',
-                    'cancelled',
-                  ].map((f) {
-                    final isSelected = ctrl.statusFilter.value == f;
-                    return GestureDetector(
-                      onTap: () => ctrl.statusFilter.value = f,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 180),
-                        margin: const EdgeInsets.only(right: 8),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 7,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? AppColors.primary
-                              : AppColors.surface,
-                          borderRadius: BorderRadius.circular(100),
-                          border: Border.all(
-                            color: isSelected
-                                ? AppColors.primary
-                                : AppColors.border,
+      ),
+      body: RefreshIndicator(
+        onRefresh: ctrl.refresh,
+        color: AppColors.primary,
+        child: Obx(() {
+          return CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverToBoxAdapter(
+                child: Column(
+                  children: [
+                    // Summary Bar
+                    Container(
+                      margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 14,
+                        horizontal: 20,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppColors.border, width: 0.8),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          _SummaryItem(
+                            'Total',
+                            '${ctrl.mergedDeliveries.length}',
+                            AppColors.primary,
                           ),
+                          _Divider(),
+                          _SummaryItem(
+                            'Delivered',
+                            '${ctrl.deliveredCount}',
+                            AppColors.success,
+                          ),
+                          _Divider(),
+                          _SummaryItem(
+                            'Pending',
+                            '${ctrl.pendingCount}',
+                            AppColors.warning,
+                          ),
+                          _Divider(),
+                          _SummaryItem(
+                            'Missed',
+                            '${ctrl.missedCount}',
+                            AppColors.error,
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Search
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                      child: TextField(
+                        controller: ctrl.searchCtrl,
+                        onChanged: ctrl.onSearchChanged,
+                        decoration: InputDecoration(
+                          hintText: 'Search by customer or address...',
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          suffixIcon: ctrl.searchQuery.value.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.close),
+                                  onPressed: ctrl.clearSearch,
+                                )
+                              : null,
                         ),
-                        child: Text(
-                          f.toCapitalCase,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: isSelected
-                                ? Colors.white
-                                : AppColors.textSecondary,
-                            fontFamily: 'Poppins',
+                      ),
+                    ),
+
+                    // Status Filters
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children:
+                              [
+                                'all',
+                                'pending',
+                                'delivered',
+                                'missed',
+                                'cancelled',
+                              ].map((f) {
+                                final selected = ctrl.statusFilter.value == f;
+
+                                return GestureDetector(
+                                  onTap: () => ctrl.statusFilter.value = f,
+                                  child: Container(
+                                    margin: const EdgeInsets.only(right: 8),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 7,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: selected
+                                          ? AppColors.primary
+                                          : AppColors.surface,
+                                      borderRadius: BorderRadius.circular(100),
+                                    ),
+                                    child: Text(
+                                      f.toCapitalCase,
+                                      style: TextStyle(
+                                        color: selected
+                                            ? Colors.white
+                                            : AppColors.textSecondary,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    // Slot Chips
+                    if (ctrl.availableTimeSlots.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              _SlotChip(
+                                label: 'All Slots',
+                                isSelected: ctrl.slotFilter.value.isEmpty,
+                                onTap: ctrl.clearSlotFilter,
+                                icon: Icons.access_time_rounded,
+                              ),
+                              ...ctrl.availableTimeSlots.map(
+                                (slot) => _SlotChip(
+                                  label: slot.label,
+                                  isSelected:
+                                      ctrl.slotFilter.value == slot.startTime,
+                                  onTap: () =>
+                                      ctrl.slotFilter.value = slot.startTime,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
-                    );
-                  }).toList(),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 6),
 
-          // Time-slot filter chips
-          Obx(() {
-            if (ctrl.availableTimeSlots.isEmpty) return const SizedBox.shrink();
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    _SlotChip(
-                      label: 'All Slots',
-                      isSelected: ctrl.slotFilter.value.isEmpty,
-                      onTap: ctrl.clearSlotFilter,
-                      icon: Icons.access_time_rounded,
-                    ),
-                    ...ctrl.availableTimeSlots.map((slot) {
-                      final isSelected = ctrl.slotFilter.value == slot.startTime;
-                      return _SlotChip(
-                        label: slot.label,
-                        isSelected: isSelected,
-                        onTap: () => ctrl.slotFilter.value = slot.startTime,
-                      );
-                    }),
+                    const SizedBox(height: 12),
                   ],
                 ),
               ),
-            );
-          }),
-          const SizedBox(height: 8),
 
-          // List
-          Expanded(
-            child: Obx(() {
+              // Loading
               if (ctrl.isLoading.value)
-                return const ShimmerList(itemHeight: 90);
-              if (ctrl.filteredDeliveries.isEmpty) {
-                return RefreshIndicator(
-                  onRefresh: ctrl.refresh,
-                  color: AppColors.primary,
+                const SliverToBoxAdapter(child: ShimmerList(itemHeight: 90))
+              // Empty State
+              else if (ctrl.filteredDeliveries.isEmpty)
+                SliverFillRemaining(
+                  hasScrollBody: false,
                   child: Center(
-                    child: SingleChildScrollView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      child: EmptyState(
-                        title: ctrl.searchQuery.value.isNotEmpty
-                            ? 'No Results Found'
-                            : ctrl.statusFilter.value == 'all'
-                            ? 'No Deliveries Today'
-                            : 'No ${ctrl.statusFilter.value.toCapitalCase} Deliveries',
-                        subtitle: ctrl.searchQuery.value.isNotEmpty
-                            ? 'Try a different search term.'
-                            : 'Deliveries are auto-generated from active subscriptions.',
-                        icon: Icons.local_shipping_outlined,
-                        actionLabel: ctrl.searchQuery.value.isNotEmpty
-                            ? 'Clear Search'
-                            : null,
-                        onAction: ctrl.searchQuery.value.isNotEmpty
-                            ? ctrl.clearSearch
-                            : null,
-                      ),
+                    child: EmptyState(
+                      title: ctrl.searchQuery.value.isNotEmpty
+                          ? 'No Results Found'
+                          : 'No Deliveries Today',
+                      subtitle:
+                          'Deliveries are auto-generated from active subscriptions.',
+                      icon: Icons.local_shipping_outlined,
                     ),
                   ),
-                );
-              }
-              return RefreshIndicator(
-                onRefresh: ctrl.refresh,
-                color: AppColors.primary,
-                child: ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
-                  itemCount: ctrl.filteredDeliveries.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (_, i) {
-                    final d = ctrl.filteredDeliveries[i];
-                    return Slidable(
-                      endActionPane: ActionPane(
-                        motion: const DrawerMotion(),
-                        children: [
-                          if (d.isPending) ...[
-                            SlidableAction(
-                              onPressed: (_) => ctrl.markDelivery(
-                                d,
-                                DeliveryStatus.delivered,
-                              ),
-                              backgroundColor: AppColors.success,
-                              foregroundColor: Colors.white,
-                              icon: Icons.check_circle_rounded,
-                              label: 'Delivered',
-                              borderRadius: const BorderRadius.only(
-                                topLeft: Radius.circular(12),
-                                bottomLeft: Radius.circular(12),
-                              ),
-                            ),
-                            SlidableAction(
-                              onPressed: (_) => ctrl.showMarkWithNotesDialog(
-                                d,
-                                DeliveryStatus.missed,
-                              ),
-                              backgroundColor: AppColors.error,
-                              foregroundColor: Colors.white,
-                              icon: Icons.cancel_rounded,
-                              label: 'Missed',
-                              borderRadius: const BorderRadius.only(
-                                topRight: Radius.circular(12),
-                                bottomRight: Radius.circular(12),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      child: Obx(() {
-                        final isMarking = ctrl.markingId.value == d.id;
-                        return _DeliveryCard(
-                          delivery: d,
-                          isMarking: isMarking,
-                          onMarkDelivered: () =>
-                              ctrl.markDelivery(d, DeliveryStatus.delivered),
-                          onMarkMissed: () => ctrl.showMarkWithNotesDialog(
-                            d,
-                            DeliveryStatus.missed,
+                )
+              // Delivery List
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate((context, i) {
+                      final merged = ctrl.mergedDeliveries[i];
+                      final d = merged.first;
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Slidable(
+                          endActionPane: ActionPane(
+                            motion: const DrawerMotion(),
+                            children: [
+                              if (merged.isPending) ...[
+                                SlidableAction(
+                                  onPressed: (_) => ctrl.markDelivery(
+                                    d,
+                                    DeliveryStatus.delivered,
+                                  ),
+                                  backgroundColor: AppColors.success,
+                                  foregroundColor: Colors.white,
+                                  icon: Icons.check_circle,
+                                  label: 'Delivered',
+                                ),
+                                SlidableAction(
+                                  onPressed: (_) =>
+                                      ctrl.showMarkWithNotesDialog(
+                                        d,
+                                        DeliveryStatus.missed,
+                                      ),
+                                  backgroundColor: AppColors.error,
+                                  foregroundColor: Colors.white,
+                                  icon: Icons.cancel,
+                                  label: 'Missed',
+                                ),
+                              ],
+                            ],
                           ),
-                          onTap: () => ctrl.goToDetail(d),
-                        );
-                      }),
-                    );
-                  },
+                          child: _DeliveryCard(
+                            delivery: d,
+                            mergedAmount: merged.amount,
+                            mergedQuantity: merged.quantity,
+                            mergedCount: merged.sources.length,
+                            isMarking: ctrl.markingId.value == d.id,
+                            onMarkDelivered: () =>
+                                ctrl.markDelivery(d, DeliveryStatus.delivered),
+                            onMarkMissed: () => ctrl.showMarkWithNotesDialog(
+                              d,
+                              DeliveryStatus.missed,
+                            ),
+                            onTap: () => ctrl.goToDetail(d),
+                          ),
+                        ),
+                      );
+                    }, childCount: ctrl.mergedDeliveries.length),
+                  ),
                 ),
-              ); // closes RefreshIndicator
-            }),
-          ),
-        ],
+            ],
+          );
+        }),
       ),
     );
   }
@@ -374,172 +343,191 @@ class DeliveriesScreen extends StatelessWidget {
     Get.bottomSheet(
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      Obx(() => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: EdgeInsets.only(
-          left: 20, right: 20, top: 20,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Handle
-            Center(
-              child: Container(
-                width: 40, height: 4,
-                margin: const EdgeInsets.only(bottom: 20),
-                decoration: BoxDecoration(
-                  color: AppColors.border,
-                  borderRadius: BorderRadius.circular(2),
+      Obx(
+        () => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 20,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Handle
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 20),
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-            ),
 
-            const Text(
-              'Select Time Slot(s)',
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-                fontFamily: 'Poppins',
+              const Text(
+                'Select Time Slot(s)',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  fontFamily: 'Poppins',
+                ),
               ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'Deliveries will be created for all active subscriptions matching the selected slot.',
-              style: TextStyle(
-                fontSize: 12,
-                color: AppColors.textSecondary,
-                fontFamily: 'Poppins',
+              const SizedBox(height: 4),
+              const Text(
+                'Deliveries will be created for all active subscriptions matching the selected slot.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textSecondary,
+                  fontFamily: 'Poppins',
+                ),
               ),
-            ),
-            const SizedBox(height: 20),
+              const SizedBox(height: 20),
 
-            // Slot tiles
-            ...ctrl.availableTimeSlots.map((slot) {
-              final isSelected = selected.contains(slot.startTime);
-              return GestureDetector(
-                onTap: () {
-                  if (isSelected) {
-                    selected.remove(slot.startTime);
-                  } else {
-                    selected.add(slot.startTime);
-                  }
-                },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 160),
-                  margin: const EdgeInsets.only(bottom: 10),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? AppColors.primary.withValues(alpha: 0.08)
-                        : AppColors.surface,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: isSelected ? AppColors.primary : AppColors.border,
-                      width: isSelected ? 1.5 : 1,
+              // Slot tiles
+              ...ctrl.availableTimeSlots.map((slot) {
+                final isSelected = selected.contains(slot.startTime);
+                return GestureDetector(
+                  onTap: () {
+                    if (isSelected) {
+                      selected.remove(slot.startTime);
+                    } else {
+                      selected.add(slot.startTime);
+                    }
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? AppColors.primary.withValues(alpha: 0.08)
+                          : AppColors.surface,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: isSelected
+                            ? AppColors.primary
+                            : AppColors.border,
+                        width: isSelected ? 1.5 : 1,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? AppColors.primary.withValues(alpha: 0.12)
+                                : AppColors.background,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(
+                            Icons.schedule_rounded,
+                            size: 18,
+                            color: isSelected
+                                ? AppColors.primary
+                                : AppColors.textHint,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                slot.label,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  fontFamily: 'Poppins',
+                                  color: isSelected
+                                      ? AppColors.primary
+                                      : AppColors.textPrimary,
+                                ),
+                              ),
+                              Text(
+                                slot.startTime,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: AppColors.textSecondary,
+                                  fontFamily: 'Poppins',
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Icon(
+                          isSelected
+                              ? Icons.check_circle_rounded
+                              : Icons.radio_button_unchecked_rounded,
+                          color: isSelected
+                              ? AppColors.primary
+                              : AppColors.border,
+                          size: 22,
+                        ),
+                      ],
                     ),
                   ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 38, height: 38,
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? AppColors.primary.withValues(alpha: 0.12)
-                              : AppColors.background,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(
-                          Icons.schedule_rounded,
-                          size: 18,
-                          color: isSelected ? AppColors.primary : AppColors.textHint,
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              slot.label,
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                fontFamily: 'Poppins',
-                                color: isSelected
-                                    ? AppColors.primary
-                                    : AppColors.textPrimary,
-                              ),
-                            ),
-                            Text(
-                              slot.startTime,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: AppColors.textSecondary,
-                                fontFamily: 'Poppins',
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(
-                        isSelected
-                            ? Icons.check_circle_rounded
-                            : Icons.radio_button_unchecked_rounded,
-                        color: isSelected ? AppColors.primary : AppColors.border,
-                        size: 22,
-                      ),
-                    ],
+                );
+              }),
+
+              const SizedBox(height: 8),
+
+              // Generate button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: selected.isEmpty
+                      ? null
+                      : () async {
+                          Get.back();
+                          await ctrl.generateForSlots(selected.toList());
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    disabledBackgroundColor: AppColors.border,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                   ),
-                ),
-              );
-            }),
-
-            const SizedBox(height: 8),
-
-            // Generate button
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: selected.isEmpty
-                    ? null
-                    : () async {
-                  Get.back();
-                  await ctrl.generateForSlots(selected.toList());
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  disabledBackgroundColor: AppColors.border,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
-                ),
-                child: Text(
-                  selected.isEmpty
-                      ? 'Select a slot to continue'
-                      : 'Generate for ${selected.length} slot${selected.length > 1 ? "s" : ""}',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    fontFamily: 'Poppins',
-                    color: Colors.white,
+                  child: Text(
+                    selected.isEmpty
+                        ? 'Select a slot to continue'
+                        : 'Generate for ${selected.length} slot${selected.length > 1 ? "s" : ""}',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      fontFamily: 'Poppins',
+                      color: Colors.white,
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      )),
+      ),
     );
   }
 }
 
 class _DeliveryCard extends StatelessWidget {
   final DeliveryModel delivery;
+  final double mergedAmount;
+  final double mergedQuantity;
+  final int mergedCount;
   final bool isMarking;
   final VoidCallback onMarkDelivered;
   final VoidCallback onMarkMissed;
@@ -547,6 +535,9 @@ class _DeliveryCard extends StatelessWidget {
 
   const _DeliveryCard({
     required this.delivery,
+    required this.mergedAmount,
+    required this.mergedQuantity,
+    required this.mergedCount,
     required this.isMarking,
     required this.onMarkDelivered,
     required this.onMarkMissed,
@@ -587,18 +578,18 @@ class _DeliveryCard extends StatelessWidget {
                   child: Center(
                     child: isMarking
                         ? SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: statusColor,
-                      ),
-                    )
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: statusColor,
+                            ),
+                          )
                         : Icon(
-                      Icons.local_shipping_rounded,
-                      color: statusColor,
-                      size: 20,
-                    ),
+                            Icons.local_shipping_rounded,
+                            color: statusColor,
+                            size: 20,
+                          ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -642,6 +633,29 @@ class _DeliveryCard extends StatelessWidget {
                                 ),
                               ),
                             ),
+                          if (mergedCount > 1)
+                            Container(
+                              margin: const EdgeInsets.only(left: 6),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withValues(
+                                  alpha: 0.10,
+                                ),
+                                borderRadius: BorderRadius.circular(100),
+                              ),
+                              child: Text(
+                                '$mergedCount plans',
+                                style: const TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.primary,
+                                  fontFamily: 'Poppins',
+                                ),
+                              ),
+                            ),
                         ],
                       ),
                       Text(
@@ -661,7 +675,7 @@ class _DeliveryCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      '₹${delivery.amount.toStringAsFixed(0)}',
+                      '₹${mergedAmount.toStringAsFixed(0)}',
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w800,
@@ -829,6 +843,7 @@ class _ActionBtn extends StatelessWidget {
 class _SummaryItem extends StatelessWidget {
   final String label, value;
   final Color color;
+
   const _SummaryItem(this.label, this.value, this.color);
 
   @override
@@ -886,7 +901,9 @@ class _SlotChip extends StatelessWidget {
         margin: const EdgeInsets.only(right: 8),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: isSelected ? AppColors.primary.withValues(alpha: 0.12) : AppColors.surface,
+          color: isSelected
+              ? AppColors.primary.withValues(alpha: 0.12)
+              : AppColors.surface,
           borderRadius: BorderRadius.circular(100),
           border: Border.all(
             color: isSelected ? AppColors.primary : AppColors.border,

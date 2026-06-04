@@ -15,6 +15,33 @@ import '../../routes/app_routes.dart';
 import '../../services/delivery_scheduler_service.dart';
 import '../../services/local_storage_service.dart';
 
+/// A merged view of deliveries that share the same customer + service +
+/// delivery slot + scheduled date. Their quantities and amounts are summed.
+class MergedDelivery {
+  final List<DeliveryModel> sources;
+  MergedDelivery(this.sources) : assert(sources.isNotEmpty);
+
+  DeliveryModel get first => sources.first;
+
+  String get id              => first.id; // primary id for actions on single
+  String get customerId      => first.customerId;
+  String get customerName    => first.customerName;
+  String get customerAddress => first.customerAddress;
+  String get serviceTypeStr  => first.serviceTypeStr;
+  String get deliverySlot    => first.deliverySlot;
+  String get statusStr       => first.statusStr;
+  DateTime get scheduledDate => first.scheduledDate;
+
+  double get quantity => sources.fold(0.0, (s, d) => s + d.quantity);
+  String get unit     => first.unit;
+  double get amount   => sources.fold(0.0, (s, d) => s + d.amount);
+
+  bool get isPending   => first.isPending;
+  bool get isDelivered => first.isDelivered;
+  bool get isMissed    => first.isMissed;
+  bool get isToday     => first.isToday;
+}
+
 class DeliveriesController extends GetxController {
   // ─────────────────────────────────────────────────────────────
   // Dependencies
@@ -29,6 +56,8 @@ class DeliveriesController extends GetxController {
 
   final RxList<DeliveryModel> allDeliveries       = <DeliveryModel>[].obs;
   final RxList<DeliveryModel> filteredDeliveries   = <DeliveryModel>[].obs;
+  /// Filtered deliveries with duplicates (same customer+slot+date+service) merged.
+  final RxList<MergedDelivery> mergedDeliveries    = <MergedDelivery>[].obs;
   final RxList<TimeSlotModel> availableTimeSlots   = <TimeSlotModel>[].obs;
 
   final RxString statusFilter = 'all'.obs;
@@ -51,12 +80,14 @@ class DeliveriesController extends GetxController {
 
   String? get vendorId => LocalStorageService.getVendor()?.id;
 
-  int get deliveredCount => allDeliveries.where((d) => d.isDelivered).length;
-  int get pendingCount   => allDeliveries.where((d) => d.isPending).length;
-  int get missedCount    => allDeliveries.where((d) => d.isMissed).length;
+  // Counts are based on mergedDeliveries so they match exactly what the
+  // screen shows (one row per customer+service+slot+day group).
+  int get deliveredCount => mergedDeliveries.where((d) => d.isDelivered).length;
+  int get pendingCount   => mergedDeliveries.where((d) => d.isPending).length;
+  int get missedCount    => mergedDeliveries.where((d) => d.isMissed).length;
 
   double get totalAmount =>
-      allDeliveries.fold(0.0, (sum, d) => sum + d.amount);
+      mergedDeliveries.fold(0.0, (sum, d) => sum + d.amount);
 
   // ─────────────────────────────────────────────────────────────
   // Lifecycle
@@ -92,6 +123,32 @@ class DeliveriesController extends GetxController {
   void onReady() {
     super.onReady();
     _initStream();
+    _autoGenerateToday();
+  }
+
+  Future<void> _autoGenerateToday() async {
+    // Wait a brief moment to ensure time slots are loaded from Hive
+    if (availableTimeSlots.isEmpty) {
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+    
+    if (vendorId == null || availableTimeSlots.isEmpty) return;
+
+    // Auto-generate for the current/closest slot if not already done
+    final now = DateTime.now();
+    final currentSlot = availableTimeSlots.firstWhereOrNull((s) {
+      final end = s.getEndDateTime(now);
+      return now.isBefore(end);
+    }) ?? availableTimeSlots.first;
+
+    AppLogger.i('DeliveriesController: auto-triggering generation for slot ${currentSlot.startTime}');
+    final count = await _scheduler.generateForSlots(vendorId!, [currentSlot.startTime]);
+    
+    if (count > 0) {
+      final updated = LocalStorageService.getTodayDeliveries();
+      allDeliveries.assignAll(updated);
+      _applyFilter();
+    }
   }
 
   @override
@@ -173,6 +230,11 @@ class DeliveriesController extends GetxController {
     try {
       final count = await _scheduler.generateForSlots(vendorId!, selectedSlots);
       if (count > 0) {
+        // Refresh local list in case we are offline or stream is slow
+        final updated = LocalStorageService.getTodayDeliveries();
+        allDeliveries.assignAll(updated);
+        _applyFilter();
+
         Get.snackbar(
           '✅ Generated',
           '$count deliveries created for ${selectedSlots.length} slot(s).',
@@ -240,6 +302,24 @@ class DeliveriesController extends GetxController {
 
     list.sort((a, b) => a.scheduledDate.compareTo(b.scheduledDate));
     filteredDeliveries.assignAll(list);
+
+    // ── Build merged deliveries ─────────────────────────────────────────────
+    // Two deliveries merge when: customerId + serviceTypeStr + deliverySlot
+    // + scheduledDate (day) are all equal. Qty and amount are summed.
+    final merged = <MergedDelivery>[];
+    for (final d in list) {
+      final dayKey = '${d.scheduledDate.year}-${d.scheduledDate.month}-${d.scheduledDate.day}';
+      final key = '${d.customerId}__${d.serviceTypeStr}__${d.deliverySlot}__$dayKey';
+      final existing = merged.where((m) =>
+      '${m.customerId}__${m.serviceTypeStr}__${m.deliverySlot}__${m.scheduledDate.year}-${m.scheduledDate.month}-${m.scheduledDate.day}' == key
+      ).firstOrNull;
+      if (existing != null) {
+        existing.sources.add(d);
+      } else {
+        merged.add(MergedDelivery([d]));
+      }
+    }
+    mergedDeliveries.assignAll(merged);
   }
 
   void onSearchChanged(String value) => searchQuery.value = value;

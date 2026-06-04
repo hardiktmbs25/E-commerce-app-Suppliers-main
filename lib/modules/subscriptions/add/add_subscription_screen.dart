@@ -126,6 +126,8 @@ class _Divider extends StatelessWidget {
   Widget build(BuildContext context) => const Divider(color: AppColors.divider, thickness: 1, height: 1);
 }
 
+// ── Customer Picker ───────────────────────────────────────────────────────────
+
 class _CustomerPicker extends StatelessWidget {
   final AddSubscriptionController controller;
   const _CustomerPicker({required this.controller});
@@ -165,17 +167,31 @@ class _CustomerPicker extends StatelessWidget {
             decoration: InputDecoration(
               filled: true,
               fillColor: AppColors.surface,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.border)),
               enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.border)),
               focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.primary, width: 1.5)),
               prefixIcon: const Icon(Icons.person_search_rounded, size: 22, color: AppColors.textHint),
               hintText: 'Choose customer',
             ),
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.textPrimary, fontFamily: 'Poppins'),
+            // Collapsed view: show name + phone
+            selectedItemBuilder: (context) => customers.map((c) => Align(
+              alignment: Alignment.centerLeft,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(c.name,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 14, fontFamily: 'Poppins', fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                  ),
+                ],
+              ),
+            )).toList(),
+            // Expanded dropdown: rich card with name, phone, address
             items: customers.map((c) => DropdownMenuItem(
               value: c.id,
-              child: Text(c.name, style: const TextStyle(fontSize: 15, fontFamily: 'Poppins', fontWeight: FontWeight.w600)),
+              child: _CustomerDropdownItem(customer: c),
             )).toList(),
             onChanged: (id) => controller.selectedCustomer.value = controller.customers.firstWhereOrNull((c) => c.id == id),
             validator: (v) => v == null ? 'Please select a customer' : null,
@@ -185,6 +201,72 @@ class _CustomerPicker extends StatelessWidget {
     });
   }
 }
+
+class _CustomerDropdownItem extends StatelessWidget {
+  final dynamic customer; // CustomerModel
+  const _CustomerDropdownItem({required this.customer});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 40, height: 40,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.10),
+              shape: BoxShape.circle,
+            ),
+            child: Text(
+              customer.name.isNotEmpty ? customer.name[0].toUpperCase() : '?',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.primary, fontFamily: 'Poppins'),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(customer.name,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textPrimary, fontFamily: 'Poppins'),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Row(children: [
+                  const Icon(Icons.call_rounded, size: 12, color: AppColors.textHint),
+                  const SizedBox(width: 4),
+                  Text(customer.phone,
+                    style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, fontFamily: 'Poppins'),
+                  ),
+                ]),
+                if (customer.address.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Icon(Icons.location_on_rounded, size: 12, color: AppColors.textHint),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        [customer.address, if (customer.landmark != null && customer.landmark!.isNotEmpty) customer.landmark!].join(', '),
+                        style: const TextStyle(fontSize: 11, color: AppColors.textHint, fontFamily: 'Poppins'),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ]),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Plan Basket ───────────────────────────────────────────────────────────────
 
 class _PlanBasketSection extends StatelessWidget {
   final AddSubscriptionController controller;
@@ -225,7 +307,7 @@ class _PlanBasketSection extends StatelessWidget {
                   )).toList(),
                   items: plans.map((p) => DropdownMenuItem<PlanModel>(
                     value: p,
-                    child: _PlanDropdownItem(plan: p),
+                    child: _PlanDropdownItem(plan: p, controller: controller),
                   )).toList(),
                   onChanged: (plan) => controller.selectedDropdownPlan.value = plan,
                 );
@@ -281,7 +363,7 @@ class _PlanBasketSection extends StatelessWidget {
             separatorBuilder: (_, __) => const SizedBox(height: 8),
             itemBuilder: (_, index) {
               final item = items[index];
-              return _BasketItemTile(item: item, onRemove: () => controller.removePlan(item.id));
+              return _BasketItemTile(item: item, controller: controller, onRemove: () => controller.removePlan(item.id));
             },
           );
         }),
@@ -315,44 +397,202 @@ class _PlanBasketSection extends StatelessWidget {
   }
 }
 
+// ── Plan Dropdown Item (open list) ────────────────────────────────────────────
+
 class _PlanDropdownItem extends StatelessWidget {
   final PlanModel plan;
-  const _PlanDropdownItem({required this.plan});
+  final AddSubscriptionController controller;
+  const _PlanDropdownItem({required this.plan, required this.controller});
 
   String get _serviceIcon {
     switch (plan.serviceType) {
-      case 'milk': return '🥛';
-      case 'water': return '💧';
+      case 'milk':      return '🥛';
+      case 'water':     return '💧';
       case 'newspaper': return '📰';
-      case 'tiffin': return '🍱';
-      case 'grocery': return '🛒';
-      default: return '📦';
+      case 'tiffin':    return '🍱';
+      case 'grocery':   return '🛒';
+      default:          return '📦';
     }
   }
 
   String get _frequencyLabel {
     switch (plan.frequencyStr) {
-      case 'daily': return 'Daily';
-      case 'twice_daily': return 'Twice Daily';
+      case 'daily':        return 'Daily';
+      case 'twice_daily':  return 'Twice Daily';
       case 'thrice_daily': return 'Thrice Daily';
-      case 'alternate': return 'Alternate Days';
-      case 'weekdays': return 'Weekdays';
-      case 'weekends': return 'Weekends';
-      case 'weekly': return 'Weekly';
-      default: return plan.frequencyStr;
+      case 'alternate':    return 'Alternate Days';
+      case 'weekdays':     return 'Weekdays';
+      case 'weekends':     return 'Weekends';
+      case 'weekly':       return 'Weekly';
+      default:             return plan.frequencyStr;
     }
+  }
+
+  List<String> get _slotLabels {
+    return plan.deliverySlotIds.map((id) {
+      final slot = controller.timeSlots.firstWhereOrNull((s) => s.id == id);
+      return slot?.label ?? id;
+    }).toList();
+  }
+
+  List<String> get _areaNames {
+    if (plan.deliveryAreaIds.isEmpty) return ['All Areas'];
+    return plan.deliveryAreaIds.map((id) {
+      final area = controller.deliveryAreas.firstWhereOrNull((a) => a.id == id);
+      return area?.name ?? id;
+    }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
+    final slots = _slotLabels;
+    final areas = _areaNames;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Icon
           Container(
-            width: 40,
-            height: 40,
+            width: 42, height: 42,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(_serviceIcon, style: const TextStyle(fontSize: 22)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Name
+                Text(plan.name,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textPrimary, fontFamily: 'Poppins'),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 3),
+                // Qty · Frequency
+                Text('${plan.quantity} ${plan.unit}  •  $_frequencyLabel',
+                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, fontFamily: 'Poppins'),
+                ),
+                if (slots.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Icon(Icons.access_time_rounded, size: 12, color: AppColors.textHint),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(slots.join(', '),
+                        style: const TextStyle(fontSize: 11, color: AppColors.textHint, fontFamily: 'Poppins'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ]),
+                ],
+                if (areas.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Icon(Icons.location_on_rounded, size: 12, color: AppColors.textHint),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(areas.join(', '),
+                        style: const TextStyle(fontSize: 11, color: AppColors.textHint, fontFamily: 'Poppins'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ]),
+                ],
+                if (plan.description.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(plan.description,
+                    style: const TextStyle(fontSize: 11, color: AppColors.textHint, fontFamily: 'Poppins'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          // Price column
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text('₹${plan.pricePerDelivery.toStringAsFixed(0)}',
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.primary, fontFamily: 'Poppins'),
+              ),
+              Text('per delivery',
+                style: const TextStyle(fontSize: 10, color: AppColors.textHint, fontFamily: 'Poppins'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Basket Item Tile (added plans list) ───────────────────────────────────────
+
+class _BasketItemTile extends StatelessWidget {
+  final SelectedPlanItem item;
+  final AddSubscriptionController controller;
+  final VoidCallback onRemove;
+  const _BasketItemTile({required this.item, required this.controller, required this.onRemove});
+
+  String get _serviceIcon {
+    switch (item.plan.serviceType) {
+      case 'milk':      return '🥛';
+      case 'water':     return '💧';
+      case 'newspaper': return '📰';
+      case 'tiffin':    return '🍱';
+      case 'grocery':   return '🛒';
+      default:          return '📦';
+    }
+  }
+
+  String get _frequencyLabel {
+    switch (item.plan.frequencyStr) {
+      case 'daily':        return 'Daily';
+      case 'twice_daily':  return 'Twice Daily';
+      case 'thrice_daily': return 'Thrice Daily';
+      case 'alternate':    return 'Alternate Days';
+      case 'weekdays':     return 'Weekdays';
+      case 'weekends':     return 'Weekends';
+      case 'weekly':       return 'Weekly';
+      default:             return item.plan.frequencyStr;
+    }
+  }
+
+  List<String> get _slotLabels {
+    return item.plan.deliverySlotIds.map((id) {
+      final slot = controller.timeSlots.firstWhereOrNull((s) => s.id == id);
+      return slot?.label ?? id;
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final plan = item.plan;
+    final slots = _slotLabels;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border, width: 0.8),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Emoji icon
+          Container(
+            width: 40, height: 40,
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: AppColors.primary.withOpacity(0.08),
@@ -365,24 +605,49 @@ class _PlanDropdownItem extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  plan.name,
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textPrimary, fontFamily: 'Poppins'),
-                  overflow: TextOverflow.ellipsis,
+                Text(plan.name,
+                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  '${plan.quantity} ${plan.unit}  •  $_frequencyLabel',
-                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, fontFamily: 'Poppins'),
+                Text('${plan.quantity} ${plan.unit}  •  $_frequencyLabel',
+                  style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: AppColors.textSecondary),
                 ),
-                if (plan.description.isNotEmpty) ...[
+                if (slots.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Row(children: [
+                    const Icon(Icons.access_time_rounded, size: 11, color: AppColors.textHint),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(slots.join(', '),
+                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: AppColors.textHint),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ]),
+                ],
+                if (plan.deliveryAreaIds.isNotEmpty) ...[
                   const SizedBox(height: 2),
-                  Text(
-                    plan.description,
-                    style: const TextStyle(fontSize: 11, color: AppColors.textHint, fontFamily: 'Poppins'),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  Row(children: [
+                    const Icon(Icons.location_on_rounded, size: 11, color: AppColors.textHint),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        plan.deliveryAreaIds.map((id) {
+                          final area = controller.deliveryAreas.firstWhereOrNull((a) => a.id == id);
+                          return area?.name ?? id;
+                        }).join(', '),
+                        style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: AppColors.textHint),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ]),
+                ] else ...[
+                  const SizedBox(height: 2),
+                  const Row(children: [
+                    Icon(Icons.location_on_rounded, size: 11, color: AppColors.textHint),
+                    SizedBox(width: 4),
+                    Text('All Areas', style: TextStyle(fontFamily: 'Poppins', fontSize: 11, color: AppColors.textHint)),
+                  ]),
                 ],
               ],
             ),
@@ -391,13 +656,13 @@ class _PlanDropdownItem extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(
-                '₹${plan.pricePerDelivery.toStringAsFixed(0)}',
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.primary, fontFamily: 'Poppins'),
+              Text('₹${plan.pricePerDelivery.toStringAsFixed(0)}',
+                style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
               ),
-              Text(
-                'per delivery',
-                style: const TextStyle(fontSize: 10, color: AppColors.textHint, fontFamily: 'Poppins'),
+              const SizedBox(height: 2),
+              GestureDetector(
+                onTap: onRemove,
+                child: const Icon(Icons.delete_outline_rounded, color: AppColors.error, size: 20),
               ),
             ],
           ),
@@ -407,36 +672,7 @@ class _PlanDropdownItem extends StatelessWidget {
   }
 }
 
-class _BasketItemTile extends StatelessWidget {
-  final SelectedPlanItem item;
-  final VoidCallback onRemove;
-  const _BasketItemTile({required this.item, required this.onRemove});
-
-  @override
-  Widget build(BuildContext context) {
-    final plan = item.plan;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.border, width: 0.8)),
-      child: Row(children: [
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.08), borderRadius: BorderRadius.circular(8)),
-          child: const Icon(Icons.assignment_outlined, size: 20, color: AppColors.primary),
-        ),
-        const SizedBox(width: 12),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(plan.name, style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
-          Text('${plan.quantity} ${plan.unit}  •  ${plan.frequencyStr}', style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, color: AppColors.textSecondary)),
-        ])),
-        const SizedBox(width: 8),
-        Text('₹${plan.pricePerDelivery.toStringAsFixed(0)}', style: const TextStyle(fontFamily: 'Poppins', fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
-        const SizedBox(width: 12),
-        IconButton(icon: const Icon(Icons.delete_outline_rounded, color: AppColors.error, size: 20), padding: EdgeInsets.zero, constraints: const BoxConstraints(), onPressed: onRemove),
-      ]),
-    );
-  }
-}
+// ── Shared Widgets ─────────────────────────────────────────────────────────────
 
 class _BigInputField extends StatelessWidget {
   final String label;

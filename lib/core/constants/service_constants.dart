@@ -115,6 +115,8 @@ enum DeliveryFrequency {
   twiceDaily,     // twice per day
   thriceDaily,    // three times per day
   alternateDay,   // every other day
+  weekdays,       // mon-fri
+  weekends,       // sat-sun
   weekly,         // once per week
 }
 
@@ -126,6 +128,8 @@ abstract class FrequencyConstants {
       case DeliveryFrequency.twiceDaily:   return 'Twice a Day';
       case DeliveryFrequency.thriceDaily:  return '3× a Day';
       case DeliveryFrequency.alternateDay: return 'Alternate Days';
+      case DeliveryFrequency.weekdays:     return 'Weekdays (Mon-Fri)';
+      case DeliveryFrequency.weekends:     return 'Weekends (Sat-Sun)';
       case DeliveryFrequency.weekly:       return 'Weekly';
     }
   }
@@ -137,6 +141,8 @@ abstract class FrequencyConstants {
       case DeliveryFrequency.twiceDaily:   return '2× Daily';
       case DeliveryFrequency.thriceDaily:  return '3× Daily';
       case DeliveryFrequency.alternateDay: return 'Alt. Days';
+      case DeliveryFrequency.weekdays:     return 'Weekdays';
+      case DeliveryFrequency.weekends:     return 'Weekends';
       case DeliveryFrequency.weekly:       return 'Weekly';
     }
   }
@@ -157,6 +163,8 @@ abstract class FrequencyConstants {
       case DeliveryFrequency.twiceDaily:   return 60;
       case DeliveryFrequency.thriceDaily:  return 90;
       case DeliveryFrequency.alternateDay: return 15;
+      case DeliveryFrequency.weekdays:     return 22;
+      case DeliveryFrequency.weekends:     return 8;
       case DeliveryFrequency.weekly:       return 4;
     }
   }
@@ -173,6 +181,8 @@ abstract class FrequencyConstants {
       case 'twiceDaily':   return DeliveryFrequency.twiceDaily;
       case 'thriceDaily':  return DeliveryFrequency.thriceDaily;
       case 'alternateDay': return DeliveryFrequency.alternateDay;
+      case 'weekdays':     return DeliveryFrequency.weekdays;
+      case 'weekends':     return DeliveryFrequency.weekends;
       case 'weekly':       return DeliveryFrequency.weekly;
       default:             return DeliveryFrequency.onceDaily;
     }
